@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# Virtual environment
+venv/
+.env/
+
+# Jupyter notebooks
+.ipynb_checkpoints
+
+# Streamlit cache
+.streamlit/
+**/.streamlit/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# RDF and serialized data (optional, if not versioned)
+*.ttl
+*.nt
+*.rdf
+
+# Logs and temp files
+*.log
+*.tmp
+*.bak
+
+# VSCode settings
+.vscode/
+
+# Pytest and test outputs
+.pytest_cache/
+htmlcov/
+.coverage
+
+# Environment variables or secrets
+.env
+*.env
