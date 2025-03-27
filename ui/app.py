@@ -1,6 +1,15 @@
 import streamlit as st
+import sys
+import os
+
+# Add clearsure/ to Python path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from rdf.rdf_store import add_triple, get_all_triples, save_graph, load_graph
+
 
 st.title("ClearSure Semantic Extractor")
+
+load_graph()
 
 # User query input
 user_query = st.text_input("Ask a question or enter a statement:")
@@ -21,4 +30,10 @@ if uploaded_file is not None:
 
 # Show query
 if user_query:
-    st.write("You asked:", user_query)
+    add_triple("user", "asked", user_query)
+    save_graph()
+    st.success("Triple added to RDF store.")
+
+st.subheader("Stored RDF Triples")
+for s, p, o in get_all_triples():
+    st.text(f"{s} -- {p} --> {o}")
