@@ -5,6 +5,8 @@ import os
 # Add clearsure/ to Python path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from rdf.rdf_store import add_triple, get_all_triples, save_graph, load_graph
+from rdf.rdf_store import add_triple, save_graph, get_all_triples
+from extractor.triple_extractor import extract_triples_with_llm, parse_triples, parse_rebel_output
 
 
 st.title("ClearSure Semantic Extractor")
@@ -12,7 +14,8 @@ st.title("ClearSure Semantic Extractor")
 load_graph()
 
 # User query input
-user_query = st.text_input("Ask a question or enter a statement:")
+user_input = st.text_input("Enter a sentence describing a fact:")
+extract_btn = st.button("Extract & Save Triples")
 
 # Document upload
 uploaded_file = st.file_uploader("Upload a document", type=["txt", "pdf"])
@@ -28,11 +31,15 @@ if uploaded_file is not None:
         pdf_text = "\n".join([page.extract_text() for page in reader.pages])
         st.text_area("PDF Content", pdf_text, height=200)
 
-# Show query
-if user_query:
-    add_triple("user", "asked", user_query)
+if extract_btn and user_input:
+    raw_output = extract_triples_with_llm(user_input)
+    st.code(raw_output, language='text')
+
+    extracted = parse_rebel_output(raw_output)
+    for s, p, o in extracted:
+        add_triple(s, p, o)
     save_graph()
-    st.success("Triple added to RDF store.")
+    st.success("Triples extracted and stored!")
 
 st.subheader("Stored RDF Triples")
 for s, p, o in get_all_triples():
