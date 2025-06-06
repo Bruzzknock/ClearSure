@@ -1,0 +1,11 @@
+# Core parser with local ML extras
+unstructured[pdf,docx,pptx,image,local-inference]==0.17.2  # released 2025-03-20 :contentReference[oaicite:0]{index=0}
+
+# Specialised helpers
+pdfplumber==0.11.6             # 2025-03-28 :contentReference[oaicite:1]{index=1}
+pytesseract==0.3.13            # 2024-08-16 :contentReference[oaicite:2]{index=2}
+python-magic>=0.4.27,<0.5      # MIME sniffing
+pymupdf                         # only if you’re OK with the AGPL
+
+# Orchestration (optional for ad-hoc tests)
+prefect==3.4.4                 # 2025-05-29 :contentReference[oaicite:3]{index=3}
