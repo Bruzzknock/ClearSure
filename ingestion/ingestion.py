@@ -95,13 +95,15 @@ def write_output(elements: List[Element], out: Path | None, src: Path) -> None:
     if out is None:
         # console preview = first few elements
         for el in elements[:8]:
-            print(f"{el.type:<15} | {el.text[:80]!r}")
+            kind    = getattr(el, "category", el.__class__.__name__)  # future-proof
+            snippet = (el.text or "").replace("\n", " ")[:80]
+            print(f"{kind:<15} | {snippet!r}")
         print(f"... total: {len(elements)} elements")
         return
 
     out.parent.mkdir(parents=True, exist_ok=True)
     records = [el.to_dict() for el in elements]
-    out.write_text(json.dumps(records, indent=2, ensure_ascii=False))
+    out.write_text(json.dumps(records, indent=2, ensure_ascii=False), encoding="utf-8")
     logger.info("Wrote %d elements ➜ %s", len(records), out)
 
 def main() -> None:
