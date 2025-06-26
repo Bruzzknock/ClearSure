@@ -7,7 +7,7 @@ from pathlib import Path
 import spacy
 import json
 import requests
-from LLMs import simplify_text, remove_think_block, simplify_text_stage2, create_knowledge_graph
+from LLMs import simplify_text, remove_think_block, simplify_text_stage2, create_knowledge_ontology
 
 try:
     # load environment variables from .env file (requires `python-dotenv`)
@@ -84,12 +84,11 @@ while i < len(sentences):
         i += len(new_sentences) 
     else:
         i += 1  # move on to the next one
-
+ontologies = None
 # Final cleaned list
 print("🧾🧾🧾🧾🧾🧾🧾🧾 Final simplified sentence list:")
 for s in sentences:
-    print("-", s)
-
-raw_kg = create_knowledge_graph(sentences, model)
-kg = remove_think_block(raw_kg)
-print("😁😁😁😁😁😁😁😁😁😁", kg)
+    print("-🧾", s)
+    raw_kg = create_knowledge_ontology(s, model)
+    kg = remove_think_block(raw_kg)
+    print("-😁", kg)

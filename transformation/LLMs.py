@@ -73,10 +73,14 @@ def simplify_text_stage2(text: str, model) -> str:
     prompt = prompt_template.format(text=text)
     return model.invoke(prompt)
 
-def create_knowledge_graph(text: str, model) -> str:
+def create_knowledge_ontology(text: str, model) -> str:
     prompt_template = PromptTemplate.from_template(
-"Task: Take the input and create ontology knowledge graph that could represent logic behind the sentences." \
-"Output the nodes and edges of the knowledge graph."
+"Task: Take the input and create a simple ontology." \
+"Output the node(s) and edge(s) of the ontology." \
+"Nodes are represented: [node]'name of the node'" \
+"Edges are represented: ->'name of the edge'" \
+"Example Input: Dr. María-José Fernández spoke to 27 delegates during the same afternoon." \
+"Example Output: [node]Dr. María-José Fernández ->spoke [node]27 delegates"
 "Input:"
 "{text}")
     prompt = prompt_template.format(text=text)
