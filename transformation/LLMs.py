@@ -85,34 +85,3 @@ def create_knowledge_graph(text: str, model) -> str:
 def remove_think_block(text: str) -> str:
     # Remove <think>...</think> including the tags
     return re.sub(r"<think>.*?</think>\s*", "", text, flags=re.DOTALL)
-
-def reiterate_over_sentences(sentences) -> str:
-    i = 0
-    while i < len(sentences):
-        sentence = sentences[i]
-    
-        # Call simplification function
-        raw_new_sentences_text = simplify_text_stage2(sentence, model)
-        new_sentences_text = remove_think_block(raw_new_sentences_text)
-        print("🧾",new_sentences_text)
-
-        # Split the result by newlines or sentence delimiters
-        new_sentences = [s.strip() for s in new_sentences_text.split('\n') if s.strip()]
-
-        if len(new_sentences) == 1 and new_sentences[0] == sentence:
-            i += 1
-            continue
-
-        # If the result has more than one sentence, replace
-        if len(new_sentences) > 1:
-            # Remove the original sentence
-            sentences.pop(i)
-            # Insert the new ones at the same index
-            for new_sentence in reversed(new_sentences):
-                sentences.insert(i, new_sentence)
-        
-            i += len(new_sentences) 
-        else:
-            i += 1  # move on to the next one
-    
-    return sentences
