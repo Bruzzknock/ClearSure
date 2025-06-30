@@ -2,6 +2,7 @@ from langchain_ollama import ChatOllama
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.prompts import PromptTemplate
 import re
+import json
 
 def simplify_text(text: str, model) -> str:
     prompt_template = PromptTemplate.from_template(
@@ -51,7 +52,7 @@ def simplify_text_stage2(text: str, model) -> str:
     prompt_template = PromptTemplate.from_template(
 "Task: Split and format the input so every sentence"
 "fully complies with the formatting rules for our NER pre-processor."
-"STRICT RULES  "
+"STRICT RULES"
 "1. One fact per sentence."
 "2. No relative words: who, which, that, whose, where, when."
 "3. No clause-joining conjunctions (and, but, because, so, unless, while, although, however) inside one sentence." 
@@ -75,17 +76,108 @@ def simplify_text_stage2(text: str, model) -> str:
 
 def create_knowledge_ontology(text: str, model) -> str:
     prompt_template = PromptTemplate.from_template(
-"Task: Take the input and create a simple ontology." \
-"Output the node(s) and edge(s) of the ontology." \
-"Nodes are represented: [node]'name of the node'" \
-"Edges are represented: ->'name of the edge'" \
-"Example Input: Dr. María-José Fernández spoke to 27 delegates during the same afternoon." \
-"Example Output: [node]Dr. María-José Fernández ->spoke [node]27 delegates"
-"Input:"
-"{text}")
+"""
+    You are an information-extraction assistant.
+
+    **Task**
+    1. Read the sentence given in <text>.
+    2. Identify every distinct entity (noun / noun-phrase) → create a node for each.
+    3. Identify every *verb or preposition* that expresses a relation between two entities → create an edge.
+
+    **Output format (MUST follow exactly – NO extra keys, NO prose):**
+    {{
+      "nodes": [
+        {{"id": "n1", "label": "<entity-1>"}},
+        ...
+      ],
+      "edges": [
+        {{"source": "nX", "relation": "<predicate>", "target": "nY"}},
+        ...
+      ]
+    }}
+
+    *Rules*
+    • Re-use a node if you see the same surface form again (case-insensitive).  
+    • Use singular labels (“delegates”, “delegates' ” → “delegate”).  
+    • relation = raw verb/preposition in **lower case**.  
+    • If no relation is found, return an empty "edges" array.  
+    • Do **NOT** output anything except the JSON block.
+
+    Example
+    Input: "Marie Curie discovered radium with Pierre Curie in 1898."
+    Output:
+    {{
+        "nodes": [
+            {{"id": "n1", "label": "marie curie"}},
+            {{"id": "n2", "label": "pierre curie"}},
+            {{"id": "n3", "label": "radium"}},
+            {{"id": "n4", "label": "1898"}}
+        ],
+        "edges": [
+            {{"source": "n1", "relation": "discovered", "target": "n3"}},
+            {{"source": "n2", "relation": "discovered", "target": "n3"}},
+            {{"source": "n1", "relation": "with", "target": "n2"}},
+            {{"source": "n3", "relation": "in", "target": "n4"}}
+        ]
+    }}
+    <text>{text}</text>"""
+    )
     prompt = prompt_template.format(text=text)
     return model.invoke(prompt)
 
 def remove_think_block(text: str) -> str:
     # Remove <think>...</think> including the tags
     return re.sub(r"<think>.*?</think>\s*", "", text, flags=re.DOTALL)
+
+def fuse_atomic_graphs(full_sentence: str, atomic_graphs: list[dict], model):
+    prompt_template = PromptTemplate.from_template(
+        """
+You are a knowledge-graph engineer.
+
+# INPUTS
+## Full_sentence
+{full_sentence}
+
+## Atomic_graphs
+{atomic_graphs}
+
+# TASK
+Using *both* the Full_sentence and the Atomic_graphs:
+
+1. **Merge nodes that refer to the same entity**  
+   • Same name (case-insensitive) ➜ single node  
+   • Pronouns (“she”, “it”, “this”) ➜ resolve to their antecedent entity  
+   • Treat abbreviations & long forms as one (e.g. “IMF” = “International Monetary Fund”).
+
+2. **Add missing relations that express logic in the original sentence**, especially:  
+   • *causal*  → relation = "causes"  
+   • *conditional* (“if … then …”) → relation = "condition_for"  
+   • *exception* (“unless …”)   → relation = "exception_to"  
+   • *temporal* (“before / after / during”) → relation = "temporal_relation" with
+     an attribute "type": "before" | "after" | "during".
+
+3. **Normalise relation vocabulary** to the following set  
+   {located_in, occurs_on_date, heads, speaks_to, wins, exceeds, causes,
+    condition_for, exception_to, raises, invokes, increases_to, achieves,
+    temporal_relation}
+
+4. **Convert literal quantities to node attributes** instead of separate nodes  
+   • e.g. "€2.7 trillion" ➜ node "green-bond contribution" {amount: 2.7e12, currency: "EUR"}  
+   • "0.27 W m⁻²" ➜ {value:0.27, unit:"W m^-2"}.
+
+5. **Return strict JSON** exactly in this schema ­— nothing else:
+
+```json
+{
+  "nodes":[
+    {"id":"n1","label":"...", "...optional_attributes":...},
+    ...
+  ],
+  "edges":[
+    {"source":"nX","relation":"<one_of_allowed_relations>","target":"nY", "attributes":{...optional...}},
+    ...
+  ]
+} """
+"""Return a single ontology fragment covering the whole sentence.""")
+    prompt = prompt_template.format(full_sentence=full_sentence,atomic_graphs=json.dumps(atomic_graphs, ensure_ascii=False, indent=2))
+    return model.invoke(prompt)

@@ -7,7 +7,7 @@ from pathlib import Path
 import spacy
 import json
 import requests
-from LLMs import simplify_text, remove_think_block, simplify_text_stage2, create_knowledge_ontology
+from LLMs import simplify_text, remove_think_block, simplify_text_stage2, create_knowledge_ontology, fuse_atomic_graphs
 
 try:
     # load environment variables from .env file (requires `python-dotenv`)
@@ -64,7 +64,7 @@ while i < len(sentences):
     # Call simplification function
     raw_new_sentences_text = simplify_text_stage2(sentence, model)
     new_sentences_text = remove_think_block(raw_new_sentences_text)
-    print("🧾",new_sentences_text)
+    # print("🧾",new_sentences_text)
 
     # Split the result by newlines or sentence delimiters
     new_sentences = [s.strip() for s in new_sentences_text.split('\n') if s.strip()]
@@ -92,3 +92,6 @@ for s in sentences:
     raw_kg = create_knowledge_ontology(s, model)
     kg = remove_think_block(raw_kg)
     print("-😁", kg)
+
+integrated_graph = fuse_atomic_graphs(file_content, all_atomic_jsons, model)
+print(json.dumps(integrated_graph, indent=2, ensure_ascii=False))
