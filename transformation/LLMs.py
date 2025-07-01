@@ -157,27 +157,27 @@ Using *both* the Full_sentence and the Atomic_graphs:
      an attribute "type": "before" | "after" | "during".
 
 3. **Normalise relation vocabulary** to the following set  
-   {located_in, occurs_on_date, heads, speaks_to, wins, exceeds, causes,
+   {{located_in, occurs_on_date, heads, speaks_to, wins, exceeds, causes,
     condition_for, exception_to, raises, invokes, increases_to, achieves,
-    temporal_relation}
+    temporal_relation}}
 
 4. **Convert literal quantities to node attributes** instead of separate nodes  
-   • e.g. "€2.7 trillion" ➜ node "green-bond contribution" {amount: 2.7e12, currency: "EUR"}  
-   • "0.27 W m⁻²" ➜ {value:0.27, unit:"W m^-2"}.
+   • e.g. "€2.7 trillion" ➜ node "green-bond contribution" {{amount: 2.7e12, currency: "EUR"}}  
+   • "0.27 W m⁻²" ➜ {{value:0.27, unit:"W m^-2"}}.
 
 5. **Return strict JSON** exactly in this schema ­— nothing else:
 
 ```json
-{
+{{
   "nodes":[
-    {"id":"n1","label":"...", "...optional_attributes":...},
+    {{"id":"n1","label":"...", "...optional_attributes":...}},
     ...
   ],
   "edges":[
-    {"source":"nX","relation":"<one_of_allowed_relations>","target":"nY", "attributes":{...optional...}},
+    {{"source":"nX","relation":"<one_of_allowed_relations>","target":"nY", "attributes":{{...optional...}},
     ...
   ]
-} """
+}} """
 """Return a single ontology fragment covering the whole sentence.""")
     prompt = prompt_template.format(full_sentence=full_sentence,atomic_graphs=json.dumps(atomic_graphs, ensure_ascii=False, indent=2))
     return model.invoke(prompt)
