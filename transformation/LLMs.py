@@ -77,51 +77,78 @@ def simplify_text_stage2(text: str, model) -> str:
 def create_knowledge_ontology(text: str, model) -> str:
     prompt_template = PromptTemplate.from_template(
 """
-    You are an information-extraction assistant.
+You are an information-extraction assistant.
 
-    **Task**
-    1. Read the sentence given in <text>.
-    2. Identify every distinct entity (noun / noun-phrase) → create a node for each.
-    3. Identify every *verb or preposition* that expresses a relation between two entities → create an edge.
+──────────────────── TASK ────────────────────
+Given **one sentence** (inside <text>) build a mini knowledge-graph that
+captures every explicit entity and every explicit relation in that sentence
+only.  Output a single JSON object that matches the schema shown below.
 
-    **Output format (MUST follow exactly – NO extra keys, NO prose):**
-    {{
-      "nodes": [
-        {{"id": "n1", "label": "<entity-1>"}},
-        ...
-      ],
-      "edges": [
-        {{"source": "nX", "relation": "<predicate>", "target": "nY"}},
-        ...
-      ]
-    }}
+Entities → *nodes*  
+Relations → *edges*
 
-    *Rules*
-    • Re-use a node if you see the same surface form again (case-insensitive).  
-    • Use singular labels (“delegates”, “delegates' ” → “delegate”).  
-    • relation = raw verb/preposition in **lower case**.  
-    • If no relation is found, return an empty "edges" array.  
-    • Do **NOT** output anything except the JSON block.
+────────────── How to build the graph ──────────────
+NODES  
+• Create one node for every noun-phrase that denotes a person, organisation,
+  object, document, concept, number, money amount, unit, date, or title that
+  appears in the sentence.  
+• Keep the surface text exactly as it appears (lower-case words, internal
+  capitals for acronyms, preserve numerals, hyphens, currency symbols).  
+• When a parenthetical acronym follows a full name, **create a second node for
+  the acronym**.  
+  – Immediately connect it to the full form with the edge
+    `{{"source": "<acronym-id>", "relation": "is", "target": "<full-name-id>"}}`.  
+• Assign ids `n1 … nK` in order of first appearance.
+• Treat every explicit date, time-of-day, duration, location or rate phrase as a 
+node and link it with the introducing preposition (‘on’, ‘during’, ‘at’, ‘per’, …).
 
-    Example
-    Input: "Marie Curie discovered radium with Pierre Curie in 1898."
-    Output:
-    {{
-        "nodes": [
-            {{"id": "n1", "label": "marie curie"}},
-            {{"id": "n2", "label": "pierre curie"}},
-            {{"id": "n3", "label": "radium"}},
-            {{"id": "n4", "label": "1898"}}
-        ],
-        "edges": [
-            {{"source": "n1", "relation": "discovered", "target": "n3"}},
-            {{"source": "n2", "relation": "discovered", "target": "n3"}},
-            {{"source": "n1", "relation": "with", "target": "n2"}},
-            {{"source": "n3", "relation": "in", "target": "n4"}}
-        ]
-    }}
-    <text>{text}</text>"""
-    )
+EDGES  
+• For every explicit grammatical link between two entities, add an edge:  
+    – Main verbs (`released`, `spoke`, `won`, `heads`, `located`, etc.).  
+    – Copula/alias links (`is`, `was`, `are`).  
+    – Functional verbs such as `titled`, `scheduled`, `oblige`.  
+    – Prepositions that attach one entity to another (`to`, `of`, `by`, `at`, …).  
+• Relation text = the word *exactly as it appears* in the sentence,
+  lower-cased; use underscores for multi-word verbs if needed (`spoke_to`).  
+• Do not invent relations that are not present.
+
+OUTPUT (must match this shape exactly – no extra keys, no prose)
+{{
+  "nodes": [
+    {{"id": "n1", "label": "<entity-1>"}},
+    ...
+  ],
+  "edges": [
+    {{"source": "nX", "relation": "<predicate>", "target": "nY"}},
+    ...
+  ]
+}}
+
+────────────── Example ──────────────
+Input:
+During the late afternoon of 14 October 2024, the International 
+Association for Climate Economics (IACE) released its 312-page report 
+titled “Carbon Costs and the Tomorrow Market.”
+
+Output:
+{{
+  "nodes": [
+    {{"id": "n1", "label": "international association for climate economics"}},
+    {{"id": "n2", "label": "iace"}},
+    {{"id": "n3", "label": "312-page report"}},
+    {{"id": "n4", "label": "carbon costs and the tomorrow market"}}
+
+  ],
+  "edges": [
+    {{"source": "n1", "relation": "released", "target": "n3"}},
+    {{"source": "n2", "relation": "is", "target": "n1"}},
+    {{"source": "n3", "relation": "titled", "target": "n4"}}
+
+  ]
+}}
+
+<text>{text}</text>
+""")
     prompt = prompt_template.format(text=text)
     return model.invoke(prompt)
 
@@ -132,52 +159,96 @@ def remove_think_block(text: str) -> str:
 def fuse_atomic_graphs(full_sentence: str, atomic_graphs: list[dict], model):
     prompt_template = PromptTemplate.from_template(
         """
-You are a knowledge-graph engineer.
+You are a knowledge-graph synthesis assistant.
 
-# INPUTS
-## Full_sentence
-{full_sentence}
+────────────────────────────────  INPUT  ───────────────────────────────
+ <original>                                                            
+ {original}                                                            
+ </original>                                                           
+                                                                       
+ <atomic>                                                              
+ # a JSON list where each item is a mini-graph with "nodes"/"edges"    
+ # produced from simplified sentences                                  
+ # (the content of atomic_sentences.json)                              
+ {atomic}                                                              
+ </atomic>                                                             
+────────────────────────────────────────────────────────────────────────
 
-## Atomic_graphs
-{atomic_graphs}
 
-# TASK
-Using *both* the Full_sentence and the Atomic_graphs:
+──────────────────────────  TASK  ─────────────────────────────────────
+ Build **one unified knowledge graph** that captures *every* entity,   
+ attribute, and relationship expressed in the original sentence.  Use  
+ the atomic graphs only as hints; correct or complete them whenever    
+ the original sentence has information they missed.                    
+                                                                       
+ Return exactly one JSON object with this schema — nothing else:       
+                                                                       
+ {{                                                                     
+   "nodes": [                                                          
+     {{"id": "n1", "label": "<canonical label>", …optional_attributes}}, 
+     …                                                                 
+   ],                                                                  
+   "edges": [                                                          
+     {{"source": "nX", "relation": "<one_of_allowed_relations>",        
+      "target": "nY", "attributes": "…optional…"}},                     
+     …                                                                 
+   ]                                                                   
+ }}                                                                     
 
-1. **Merge nodes that refer to the same entity**  
-   • Same name (case-insensitive) ➜ single node  
-   • Pronouns (“she”, “it”, “this”) ➜ resolve to their antecedent entity  
-   • Treat abbreviations & long forms as one (e.g. “IMF” = “International Monetary Fund”).
+──────────────  NODE RULES  ──────────────
+ • One node per *distinct* real-world     
+   entity or literal value.               
+ • Canonical label: lower-case            
+   (keep ALL-CAP acronyms as is), strip   
+   leading articles (“the”, “a”, “an”),   
+   keep internal spaces, no underscores.  
+ • Create a second node for any acronym   
+   in parentheses and connect it to the   
+   full form with relation `"is"`.        
+ • Optional node attributes you may add:  
+   "type", "value", "unit", "date",       
+   "quantity", "role".                    
 
-2. **Add missing relations that express logic in the original sentence**, especially:  
-   • *causal*  → relation = "causes"  
-   • *conditional* (“if … then …”) → relation = "condition_for"  
-   • *exception* (“unless …”)   → relation = "exception_to"  
-   • *temporal* (“before / after / during”) → relation = "temporal_relation" with
-     an attribute "type": "before" | "after" | "during".
+──────────────  EDGE RULES  ──────────────
+ • Add an edge for every *explicit*       
+   grammatical or logical link:           
+     – main verbs (released, spoke …)     
+     – copula / alias (is, was, are)      
+     – functional verbs (titled, heads…)  
+     – prepositions (to, of, by, at …)    
+     – logical connectors (if, unless,    
+       before, after, then, causes,       
+       compels, obliges, within, by,      
+       exceed, above, per, achieve…)      
+ • Relation text = **exact token(s)**     
+   from the sentence, with spaces (never  
+   underscores).  Lower-case verbs; keep  
+   acronyms upper-case.                   
+ • Every `source` and `target` id must    
+   exist in `"nodes"`.                    
+ • For conditional logic use edges like   
+       nX —if→ nY     nX —unless→ nY      
+   and chain further consequences with    
+       nY —then→ nZ                       
+ • For rate / amount phrases link with    
+   the introducing preposition            
+   (nPrice —per→ nUnit).                  
+ • Optional edge attributes allowed, e.g. 
+   {{"modal":"could"}}, {{"tense":"past"}}. 
 
-3. **Normalise relation vocabulary** to the following set  
-   {{located_in, occurs_on_date, heads, speaks_to, wins, exceeds, causes,
-    condition_for, exception_to, raises, invokes, increases_to, achieves,
-    temporal_relation}}
+────────────── COVERAGE CHECK ────────────
+ Before you answer, run this mental list: 
+ ✅ Every node/edge from <atomic> is      
+    represented (duplicates merged).      
+ ✅ Every extra fact in <original> that   
+    is NOT in <atomic> is added.          
+ ✅ No pronouns (“she”, “it”, “this”)     
+    remain as labels.                     
+ ✅ No dangling ids (all edges refer to   
+    ids present in "nodes").              
+ ✅ No markdown, no explanation text.
 
-4. **Convert literal quantities to node attributes** instead of separate nodes  
-   • e.g. "€2.7 trillion" ➜ node "green-bond contribution" {{amount: 2.7e12, currency: "EUR"}}  
-   • "0.27 W m⁻²" ➜ {{value:0.27, unit:"W m^-2"}}.
-
-5. **Return strict JSON** exactly in this schema ­— nothing else:
-
-```json
-{{
-  "nodes":[
-    {{"id":"n1","label":"...", "...optional_attributes":...}},
-    ...
-  ],
-  "edges":[
-    {{"source":"nX","relation":"<one_of_allowed_relations>","target":"nY", "attributes":{{...optional...}},
-    ...
-  ]
-}} """
-"""Return a single ontology fragment covering the whole sentence.""")
-    prompt = prompt_template.format(full_sentence=full_sentence,atomic_graphs=json.dumps(atomic_graphs, ensure_ascii=False, indent=2))
+Return the final graph JSON **and nothing else**.
+""")
+    prompt = prompt_template.format(original=full_sentence,atomic=json.dumps(atomic_graphs, ensure_ascii=False, indent=2))
     return model.invoke(prompt)

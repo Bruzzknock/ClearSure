@@ -115,7 +115,8 @@ if(not PAUSE):
     # Final cleaned list
     print("🧾🧾🧾🧾🧾🧾🧾🧾 Final simplified sentence list:", sentences)
 
-    all_atomic_jsons = []                # <--- collect here
+
+    all_atomic_jsons = []
 
     for s in sentences:
         print("-🧾", s)
@@ -136,13 +137,14 @@ if(not PAUSE):
             print("⚠️  could not parse KG JSON:", e)
         #    optional: re-prompt the model here
 
-    save(all_atomic_jsons,"atomic_sentences.txt")
+    save(all_atomic_jsons,"atomic_sentences.json")
 
 
-    
-all_atomic_jsons = json.load(load("atomic_sentences.txt"))
-print("---------------------------------------------------------- ATOMIC SENTENCES:",all_atomic_jsons)
-file_content = load("output.json")
-# once the loop is done, fuse them
-integrated_graph = fuse_atomic_graphs(file_content, all_atomic_jsons, model)
-print(json.dumps(integrated_graph, indent=2, ensure_ascii=False))
+if(PAUSE):
+    all_atomic_jsons = json.loads(load("atomic_sentences.json"))
+    #print("---------------------------------------------------------- ATOMIC SENTENCES:",all_atomic_jsons)
+    file_content = load("output.json")
+    # once the loop is done, fuse them
+    final_graph = remove_think_block(fuse_atomic_graphs(file_content, all_atomic_jsons, model))
+    save(final_graph, "final_kg.json")
+    print(json.dumps(final_graph, indent=2, ensure_ascii=False))
