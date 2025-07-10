@@ -7,7 +7,7 @@ def clean_relation(s):
 BASE_DIR = Path(__file__).resolve().parents[1]
 
 file_path = BASE_DIR / "structured"
-input = file_path / "final_kg_o3.json"
+input = file_path / "final_kg.json"
 output = file_path / "import_kg.cypher"
 
 # Load your merged knowledge graph

@@ -7,7 +7,8 @@ from pathlib import Path
 import spacy
 import json
 import requests
-from LLMs import simplify_text, remove_think_block, simplify_text_stage2, create_knowledge_ontology, fuse_atomic_graphs
+from LLMs import simplify_text, remove_think_block, extract_entities, create_knowledge_ontology, fuse_atomic_graphs
+from run_pipeline import load_and_push
 
 try:
     # load environment variables from .env file (requires `python-dotenv`)
@@ -66,85 +67,13 @@ if(not PAUSE):
     clean_output = remove_think_block(raw_output)
     result = save(clean_output, "simplified_text.txt")
     print("✅✅✅✅✅✅✅✅ Output: \n",result)
-    
-if(not PAUSE):
-    content = load("simplified_text.txt")
-    response = requests.post("http://192.168.0.46:8001/spacy/split", json={"text":content})
-    response_content = response.json()
-    result = save(response_content, "spacy_split.json")
-    print("✅✅✅✅✅✅✅✅SPACY RESPONSE ===",result)
-
-if(not PAUSE):
-    response_content = json.loads(load("spacy_split.json"))
-    # Initialize tracking list
-    sentences = [s.strip() for s in response_content["sentences"] if s.strip()]
-    i = 0
-
-    while i < len(sentences):
-        sentence = sentences[i]
-    
-        # Call simplification function
-        raw_new_sentences_text = simplify_text_stage2(sentence, model)
-        new_sentences_text = remove_think_block(raw_new_sentences_text)
-        print("🧾",new_sentences_text)
-
-        # Split the result by newlines or sentence delimiters
-        new_sentences = [s.strip() for s in new_sentences_text.split('\n') if s.strip()]
-
-        if len(new_sentences) == 1 and new_sentences[0] == sentence:
-            i += 1
-            continue
-
-        # If the result has more than one sentence, replace
-        if len(new_sentences) > 1:
-            # Remove the original sentence
-            sentences.pop(i)
-            # Insert the new ones at the same index
-            for new_sentence in reversed(new_sentences):
-                sentences.insert(i, new_sentence)
-        
-            i += len(new_sentences) 
-        else:
-            i += 1  # move on to the next one
-
-    save(sentences,"simple_sentences.txt")
-
-if(not PAUSE):
-    sentences = json.loads(load("simple_sentences.txt"))
-    ontologies = None
-    # Final cleaned list
-    print("🧾🧾🧾🧾🧾🧾🧾🧾 Final simplified sentence list:", sentences)
-
-
-    all_atomic_jsons = []
-
-    for s in sentences:
-        print("-🧾", s)
-
-        raw_kg = create_knowledge_ontology(s, model)
-        kg_txt = remove_think_block(raw_kg).strip()
-
-        # the LLM sometimes wraps the JSON in ```json … ``` fences → strip them
-        if kg_txt.startswith("```"):
-            kg_txt = kg_txt.replace("```json", "").replace("```", "").strip()
-
-        print("-😁", kg_txt)
-
-        try:
-            kg_obj = json.loads(kg_txt)  # turn the string into a Python dict
-            all_atomic_jsons.append(kg_obj)
-        except json.JSONDecodeError as e:
-            print("⚠️  could not parse KG JSON:", e)
-        #    optional: re-prompt the model here
-
-    save(all_atomic_jsons,"atomic_sentences.json")
-
 
 if(PAUSE):
-    all_atomic_jsons = json.loads(load("atomic_sentences.json"))
-    #print("---------------------------------------------------------- ATOMIC SENTENCES:",all_atomic_jsons)
-    file_content = load("output.json")
-    # once the loop is done, fuse them
-    final_graph = remove_think_block(fuse_atomic_graphs(file_content, all_atomic_jsons, model))
-    save(final_graph, "final_kg.json")
-    print(json.dumps(final_graph, indent=2, ensure_ascii=False))
+    simplified = load("simplified_text.txt")
+    print("✅✅✅✅✅✅✅✅ Input: \n",simplified)
+    raw_output = create_knowledge_ontology(simplified,model)
+    clean_output = remove_think_block(raw_output)
+    result = save(clean_output, "final_kg.json")
+    print("✅✅✅✅✅✅✅✅ Inspected text: \n",result)
+    
+load_and_push()
