@@ -8,7 +8,7 @@ import spacy
 import json
 import requests
 from LLMs import simplify_text, remove_think_block, extract_entities, create_knowledge_ontology, fuse_atomic_graphs
-from run_pipeline import load_and_push
+from run_pipeline import load_and_push, clear_database
 
 try:
     # load environment variables from .env file (requires `python-dotenv`)
@@ -43,6 +43,7 @@ model = OllamaLLM(model="deepseek-r1:14b",
 BASE_DIR = Path(__file__).resolve().parents[1]
 
 file_path = BASE_DIR / "structured" 
+OUT_PATH  = BASE_DIR / "structured" / "import_kg.cypher"
 
 def save(text: str, file: str) -> str:
     output_file = file_path / file
@@ -76,4 +77,7 @@ if(PAUSE):
     result = save(clean_output, "final_kg.json")
     print("✅✅✅✅✅✅✅✅ Inspected text: \n",result)
     
-load_and_push()
+    
+clear_database(drop_meta=True)           # wipe
+load_and_push(save_to=OUT_PATH)          # reload + save copy
+print("✅ Graph ingested and written to", OUT_PATH)
