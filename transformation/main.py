@@ -7,8 +7,9 @@ from pathlib import Path
 import spacy
 import json
 import requests
-from LLMs import simplify_text, remove_think_block, extract_entities, create_knowledge_ontology, fuse_atomic_graphs
+from LLMs import simplify_text, remove_think_block, create_knowledge_ontology, clean_up_1st_phase
 from run_pipeline import load_and_push, clear_database
+from kg_utils import clean_kg
 
 try:
     # load environment variables from .env file (requires `python-dotenv`)
@@ -44,6 +45,7 @@ BASE_DIR = Path(__file__).resolve().parents[1]
 
 file_path = BASE_DIR / "structured" 
 OUT_PATH  = BASE_DIR / "structured" / "import_kg.cypher"
+FINAL_KG_PATH = BASE_DIR / "structured" / "final_kg.json"
 
 def save(text: str, file: str) -> str:
     output_file = file_path / file
@@ -61,7 +63,7 @@ def load(file: str) -> str:
         file_content = f.read()
     return file_content
 
-if(not PAUSE):
+if(PAUSE):
     content = load("output.json")
     print("✅✅✅✅✅✅✅✅ Input: \n",content)
     raw_output = simplify_text(content, model)
@@ -77,7 +79,16 @@ if(PAUSE):
     result = save(clean_output, "final_kg.json")
     print("✅✅✅✅✅✅✅✅ Inspected text: \n",result)
     
+if(PAUSE):
+    kg = json.loads(load("final_kg.json"))
+    # print("✅✅✅✅✅✅✅✅ Input: \n",kg)
+    raw_output = clean_up_1st_phase(kg,model)
+    clean_output = remove_think_block(raw_output)
+    result = save(clean_output, "cleaned_kg.json")
+    print("✅✅✅✅✅✅✅✅ Cleaned edges: \n",result)
+    clean_kg(result, kg_path=FINAL_KG_PATH)
     
-clear_database(drop_meta=True)           # wipe
-load_and_push(save_to=OUT_PATH)          # reload + save copy
-print("✅ Graph ingested and written to", OUT_PATH)
+if(PAUSE):
+    clear_database(drop_meta=True)           # wipe
+    load_and_push(save_to=OUT_PATH)          # reload + save copy
+    print("✅ Graph ingested and written to", OUT_PATH)

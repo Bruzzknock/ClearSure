@@ -237,10 +237,59 @@ def remove_think_block(text: str) -> str:
     # Remove <think>...</think> including the tags
     return re.sub(r"<think>.*?</think>\s*", "", text, flags=re.DOTALL)
 
-def fuse_atomic_graphs(full_sentence: str, atomic_graphs: list[dict], model):
+def clean_up_1st_phase(text: str, model):
     prompt_template = PromptTemplate.from_template(
         """
+############################################################
+# JSON-GRAPH CLEAN-UP  ➜  ADD-MISSING EDGES
+############################################################
 
+You receive **one** JSON object (the graph produced in pass #1).
+
+Return **exactly one** JSON object shaped like
+
+{{
+  "edges_patch":[ … ]
+}}
+
+No other keys, no comments, no ```json fences.
+
+─────────────────────────────────────────────────────────────
+EDGE-GENERATION RULES
+─────────────────────────────────────────────────────────────
+1.  Temporal references inside IF / WHEN clauses  
+    • Scan every Statement node whose *label* starts with **IF**.  
+    • Patterns:  BEFORE [wN] AFTER [wN] AT … [wN]  
+      – Create {{ "source":"sK","relation":"BEFORE","target":"wN" }}  
+         or AFTER / AT (use the word that appears).  
+
+2.  Nested time-anchors (w-node → w-node)  
+    • If the *label* of a wK node contains “after [wX]” or “before [wX]”  
+      – Create {{ "source":"wK","relation":"AFTER","target":"wX" }}  
+         or BEFORE accordingly.  
+
+3. IF-surrogate linking 
+   • For each Statement node sK whose *label* matches  
+     `IF (*[sA]*) THEN (*[sB]*)` (case-insensitive):  
+       – Add {{ "source":"sA","relation":"ACTOR_IN","target":"sK" }}  
+       – Add {{ "source":"sB","relation":"OBJECT_IN","target":"sK" }}
+
+4.  **No duplicates** – skip an edge if the identical triple already
+    exists in the original edges array.
+
+5.  Do **not** invent edgeId for these patch edges.
+
+─────────────────────────────────────────────────────────────
+OUTPUT CHECKLIST  (remove before running)
+✓  Only the key "edges_patch"?  
+✓  Every item follows  source / relation / target  schema?  
+✓  Relation spelling matches BEFORE / AFTER / AT?  
+✓  JSON is the only thing in the reply?
+
+############################################################
+<input>
+{input}
+</input>
 """)
-    prompt = prompt_template.format(original=full_sentence,atomic=json.dumps(atomic_graphs, ensure_ascii=False, indent=2))
+    prompt = prompt_template.format(input=text)
     return model.invoke(prompt)
