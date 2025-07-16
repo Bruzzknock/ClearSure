@@ -9,6 +9,9 @@ __pycache__/
 venv/
 .env/
 
+# Output
+structured/
+
 # Jupyter notebooks
 .ipynb_checkpoints
 
