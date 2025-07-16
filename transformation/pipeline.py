@@ -127,7 +127,15 @@ def process_document(model, input_file: str = "output.json") -> Dict[str, Any]:
             create_knowledge_ontology(simplified_txt, model)
         )
         print("✅✅✅✅✅✅ Ontology:", kg_patch_txt)
-        update_kg(kg_patch_txt, kg_path=FINAL_KG_PATH, save=True)
+        
+        kg_after, id_map = update_kg(
+            kg_patch_txt,
+            kg_path=FINAL_KG_PATH,
+            save=True,
+            return_id_map=True,
+        )
+
+
         # ----------------------------------------------------------
         # (C) clean-up first pass
         # ----------------------------------------------------------
@@ -140,7 +148,16 @@ def process_document(model, input_file: str = "output.json") -> Dict[str, Any]:
         # (D) merge into the growing master KG
         #     `clean_kg` now accepts dict / raw-string / file-path
         # ----------------------------------------------------------
-        clean_kg(cleaned_patch, kg_path=FINAL_KG_PATH, save=True)
+        
+        # (D) merge cleaned edges using id_map from same sentence
+        clean_kg(
+            cleaned_patch,
+            kg_path=FINAL_KG_PATH,
+            save=True,
+            id_map=id_map,
+            reassign_edge_ids=True,
+            drop_missing=True,
+        )
         
     # return the final KG object for convenience
     return json.loads(FINAL_KG_PATH.read_text())

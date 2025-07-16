@@ -2,7 +2,7 @@
 # --- add near the top -------------------------------------------------------
 import json, re, os
 from pathlib import Path
-from typing import Union, Dict, Any, List, Tuple
+from typing import Union, Dict, Any, List, Tuple, Optional
 from copy import deepcopy
 
 _EDGE = Tuple[str, str, str]
@@ -96,32 +96,53 @@ def clean_kg(
     kg_path: str | os.PathLike = "final_kg.json",
     save: bool = True,
     indent: int = 2,
+    *,
+    id_map: Optional[Dict[str, str]] = None,
+    reassign_edge_ids: bool = True,
+    drop_missing: bool = True,
 ) -> Dict[str, Any]:
     """
-    Merge *patch* into the KG stored at *kg_path*.
+    Merge an *edges_patch* into the KG at *kg_path*.
 
     Parameters
     ----------
-    patch : str | dict
-        • dict with `"edges_patch"` or
-        • path / JSON string (optionally wrapped in ``` fences)
-    kg_path : str | PathLike
-        Location of the KG JSON file (read & optionally overwritten).
-    save : bool
-        Persist the updated KG back to *kg_path* (default True).
-    indent : int
-        JSON indentation level for pretty saving.
+    patch
+        Dict or JSON/string containing an `edges_patch` list.
+    id_map
+        Old-ID→new-ID map returned by `update_kg()` for the *same* sentence.
+        Used to rewrite e["source"]/e["target"] so they match renumbered nodes.
+    reassign_edge_ids
+        If True, give each incoming edge a fresh sequential edgeId.
+    drop_missing
+        If True, skip edges whose mapped endpoints are not present in the KG.
 
-    Returns
-    -------
-    dict
-        The updated knowledge-graph object.
+    Returns the updated KG dict.
     """
     kg_path = Path(kg_path)
     kg = json.loads(kg_path.read_text(encoding="utf-8"))
-    new_edges = _load_patch(patch)
-    seen = _dedupe_edges(kg["edges"])
+    node_ids = {n["id"] for n in kg["nodes"]}
 
+    new_edges = deepcopy(_load_patch(patch))  # defensive copy
+
+    # Rewrite source/target using id_map (if provided)
+    if id_map:
+        for e in new_edges:
+            e["source"] = id_map.get(e["source"], e["source"])
+            e["target"] = id_map.get(e["target"], e["target"])
+
+    # Reassign edgeIds
+    if reassign_edge_ids:
+        counter = [_max_edge_index(kg["edges"])]
+        for e in new_edges:
+            e["edgeId"] = _next_edge_id(counter)
+
+    # Optionally drop edges pointing to unknown nodes
+    if drop_missing:
+        new_edges = [e for e in new_edges
+                     if e["source"] in node_ids and e["target"] in node_ids]
+
+    # Deduplicate + append
+    seen = _dedupe_edges(kg["edges"])
     for e in new_edges:
         triple = (e["source"], e["relation"], e["target"])
         if triple not in seen:
@@ -132,58 +153,57 @@ def clean_kg(
         kg_path.write_text(json.dumps(kg, indent=indent), encoding="utf-8")
     return kg
 
+
 def update_kg(
     new_kg: Union[str, Dict[str, Any]],
     kg_path: str | os.PathLike = "final_kg.json",
     save: bool = True,
     indent: int = 2,
-) -> Dict[str, Any]:
+    *,
+    return_id_map: bool = False,
+):
     """
-    Merge *new_kg* into the KG at *kg_path*.
+    Merge *new_kg* (nodes + raw edges) into the KG at *kg_path*.
 
-    * Every node that starts with n#/s#/w# gets a fresh sequential ID
-      (continuing from whatever is already in the KG).
-    * All edges in the patch are rewritten to use those new node IDs.
-    * Each edge receives a new sequential `edgeId` ("e5", "e6", …).
-    * Duplicate nodes / edges are ignored.
+    Renumbers n#/s#/w# style IDs and rewrites edges accordingly.
+    Also rewrites bracket refs in node labels.
+
+    If `return_id_map=True`, returns (kg, id_map); else just kg.
     """
     kg_path = Path(kg_path)
     kg      = json.loads(kg_path.read_text(encoding="utf-8"))
 
-    # ── pull lists from the patch ----------------------------------------
     patch_nodes = _load_patch(new_kg, "nodes")
     patch_edges = _load_patch(new_kg, "edges")
 
-    # ── counters for next IDs -------------------------------------------
     node_counters = {p: _max_index(kg["nodes"], p) for p in ("n", "s", "w")}
-    edge_counter  = [_max_edge_index(kg["edges"])]          # list = mutable int
+    edge_counter  = [_max_edge_index(kg["edges"])]
 
-    # ── build mapping old_id ➜ new_id for *all* incoming nodes ----------
     id_map: Dict[str, str] = {}
     for node in patch_nodes:
         m = _ID_PREFIX_RE.match(node["id"])
-        if m:                                              # n#/s#/w# → renumber
+        if m:
             prefix = m.group(1)
             node_counters[prefix] += 1
             new_id = f"{prefix}{node_counters[prefix]}"
             id_map[node["id"]] = new_id
             node["id"] = new_id
-        else:                                              # custom/external ID
+        else:
             id_map[node["id"]] = node["id"]
 
-    # Update lables to reflect correct numbering
+    # Fix bracket references in labels
     for node in patch_nodes:
         lbl = node.get("label")
         if isinstance(lbl, str):
             node["label"] = _rewrite_bracket_refs(lbl, id_map)
 
-    # ── rewrite *all* edges and give new edgeIds ------------------------
+    # Rewrite edges + assign new edgeIds
     for edge in patch_edges:
         edge["source"]  = id_map.get(edge["source"], edge["source"])
         edge["target"]  = id_map.get(edge["target"], edge["target"])
         edge["edgeId"]  = _next_edge_id(edge_counter)
 
-    # ── dedupe & append --------------------------------------------------
+    # Deduplicate + append
     seen_nodes = _dedupe_nodes(kg["nodes"])
     for n in patch_nodes:
         if n["id"] not in seen_nodes:
@@ -197,10 +217,10 @@ def update_kg(
             kg["edges"].append(e)
             seen_edges.add(trip)
 
-    # ── save & return ----------------------------------------------------
     if save:
         kg_path.write_text(json.dumps(kg, indent=indent), encoding="utf-8")
-    return kg
+
+    return (kg, id_map) if return_id_map else kg
 
 def _max_index(nodes: list[dict], prefix: str) -> int:
     idx = [int(m.group(2))
