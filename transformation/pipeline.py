@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Dict, Any, Iterable
 import spacy, warnings
 from langchain_ollama.llms import OllamaLLM
-from run_pipeline import load_and_push, clear_database
 from kg_utils import clean_kg, update_kg       
 from LLMs import (
     simplify_text,
@@ -68,6 +67,37 @@ def split_into_sentences(text: str) -> Iterable[str]:
         if t:
             yield t
 
+import shutil, time
+
+def reset_final_kg(
+    path: Path = FINAL_KG_PATH,
+    backup: bool = True,
+    verbose: bool = True,
+) -> dict:
+    """
+    Ensure a *clean/empty* KG file at `path`.
+
+    - Creates parent directory if missing.
+    - Optionally backs up an existing file (timestamped).
+    - Writes {"nodes": [], "edges": []}.
+    - Returns the empty dict written.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    if path.exists() and backup:
+        ts = time.strftime("%Y%m%d-%H%M%S")
+        backup_path = path.with_suffix(path.suffix + f".bak.{ts}")
+        shutil.copy2(path, backup_path)
+        if verbose:
+            print(f"📦 Backed up existing KG to {backup_path}")
+
+    empty = {"nodes": [], "edges": []}
+    path.write_text(json.dumps(empty, indent=2), encoding="utf-8")
+    if verbose:
+        print(f"🧹 Reset KG at {path}")
+    return empty
+
+
 # ------------------------------------------------------------------
 # 2.  core loop ----------------------------------------------------
 # ------------------------------------------------------------------
@@ -76,6 +106,7 @@ def process_document(model, input_file: str = "output.json") -> Dict[str, Any]:
     Run the three-stage pipeline *per sentence* and return the final KG dict.
     """
     ensure_final_kg_exists()                     # create empty KG if needed
+    reset_final_kg(backup = False)
 
     raw_text  = load_text(input_file)
     sentences = list(split_into_sentences(raw_text))
@@ -129,6 +160,10 @@ if __name__ == "__main__":
     final_kg = process_document(model, input_file="output.json")
     save(final_kg,"final_kg.json")
     print("\n✅ Done. final_kg.json now contains", len(final_kg["edges"]), "edges.")
+
+    from run_pipeline import load_and_push, clear_database
     clear_database(drop_meta=True)           # wipe
     load_and_push(save_to=OUT_PATH)          # reload + save copy
+    print("FINAL_KG_PATH =", FINAL_KG_PATH.resolve())
+    print("OUT_PATH =", OUT_PATH.resolve())
     print("✅ Graph ingested and written")

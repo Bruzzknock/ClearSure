@@ -10,13 +10,14 @@ _EDGE = Tuple[str, str, str]
 _FENCE_RE = re.compile(r"^\s*```(?:json)?\s*|\s*```\s*$", re.I)
 _ID_PREFIX_RE  = re.compile(r"^([nsw])(\d+)$")
 _EDGE_ID_RE    = re.compile(r"^e(\d+)$")
+_BRACKET_REF_RE = re.compile(r"\[(n\d+|s\d+|w\d+)\]")
 
 def _strip_fence(text: str) -> str:
     """Remove ```json fences and surrounding blank lines."""
     return _FENCE_RE.sub("", text).strip()
 
 
-# NEW ▶────────────────────────────────────────────────────────────────────────
+# Helpers ────────────────────────────────────────────────────────────────────────
 _BRACE_RE = re.compile(r"\{.*\}", re.S)
 
 def _extract_json_block(text: str) -> str:
@@ -39,8 +40,16 @@ def _extract_json_block(text: str) -> str:
                 return text[start : i + 1]
 
     raise ValueError("Unbalanced braces in patch string.")
-# ◀────────────────────────────────────────────────────────────────────────────
 
+def _rewrite_bracket_refs(text: str, id_map: dict[str, str]) -> str:
+    """
+    Replace every [s1]/[n3]/[w4] in *text* with the *new* ID
+    according to *id_map*.
+    """
+    def _repl(m):
+        old = m.group(1)
+        return f'[{id_map.get(old, old)}]'
+    return _BRACKET_REF_RE.sub(_repl, text)
 
 def _load_patch(patch: Union[str, Dict[str, Any]], objectType = "edges_patch") -> List[Dict[str, Any]]:
     """
@@ -161,6 +170,12 @@ def update_kg(
             node["id"] = new_id
         else:                                              # custom/external ID
             id_map[node["id"]] = node["id"]
+
+    # Update lables to reflect correct numbering
+    for node in patch_nodes:
+        lbl = node.get("label")
+        if isinstance(lbl, str):
+            node["label"] = _rewrite_bracket_refs(lbl, id_map)
 
     # ── rewrite *all* edges and give new edgeIds ------------------------
     for edge in patch_edges:
