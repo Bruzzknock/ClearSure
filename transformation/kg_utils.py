@@ -28,7 +28,7 @@ def _extract_json_block(text: str) -> str:
     text = _strip_fence(text)
     start = text.find("{")
     if start == -1:
-        raise ValueError("No opening '{' found in patch string.")
+        raise ValueError("No opening '{' found in patch string.", text)
 
     depth = 0
     for i, ch in enumerate(text[start:], start=start):
