@@ -8,7 +8,7 @@ import spacy, warnings
 import argparse
 import pdfplumber
 from langchain_ollama.llms import OllamaLLM
-from kg_utils import clean_kg, update_kg, merge_duplicate_nodes
+from kg_utils import clean_kg, update_kg, merge_duplicate_nodes, _extract_json_block
 from LLMs import (
     simplify_text,
     remove_think_block,
@@ -82,14 +82,17 @@ def prepare_input_file(src: Path, dest: Path = STRUCTURED_DIR / "output.json") -
 # ------------------------------------------------------------------
 # 1.  sentence splitter --------------------------------------------
 # ------------------------------------------------------------------
-# use the tiny model – plenty for sentence boundary detection
+# use spaCy's small English model for sentence boundary detection
 try:
-    _nlp = spacy.load("en_core_web_sm", disable=["tagger", "parser", "ner"])
-    _nlp.add_pipe("sentencizer")  # ← sets .is_sent_start flags
+    # keep the parser so abbreviations like "Dr." don't trigger splits
+    _nlp = spacy.load("en_core_web_sm", disable=["tagger", "ner"])
 except OSError:
-    # model missing → fall back to a blank pipeline
+    # model missing → fall back to a blank pipeline + simple sentencizer
     warnings.warn("en_core_web_sm not found; using blank 'en' + sentencizer")
     _nlp = spacy.blank("en")
+
+# ensure there is a component that sets `is_sent_start`
+if "parser" not in _nlp.pipe_names and "senter" not in _nlp.pipe_names:
     _nlp.add_pipe("sentencizer")
 
 
@@ -174,7 +177,7 @@ def process_document(model, input_file: str = "output.json") -> Dict[str, Any]:
         # ------------------------------------------------------
         # (C) clean-up first pass
         # ------------------------------------------------------
-        kg_patch_dict = json.loads(kg_patch_txt)
+        kg_patch_dict = json.loads(_extract_json_block(kg_patch_txt))
         cleaned_patch = remove_think_block(clean_up_1st_phase(kg_patch_dict, model))
         print("✅✅✅✅✅✅ Cleaned Edges:", cleaned_patch)
 
@@ -205,7 +208,7 @@ def process_document(model, input_file: str = "output.json") -> Dict[str, Any]:
         # ------------------------------------------------------
         summary_kg_txt = remove_think_block(create_knowledge_ontology(summary, model))
         update_kg(summary_kg_txt, kg_path=FINAL_KG_PATH, save=True)
-        summary_kg_dict = json.loads(summary_kg_txt)
+        summary_kg_dict = json.loads(_extract_json_block(summary_kg_txt))
         summary_patch = remove_think_block(clean_up_1st_phase(summary_kg_dict, model))
         clean_kg(
             summary_patch,
