@@ -12,6 +12,7 @@ from LLMs import (
     remove_think_block,
     create_knowledge_ontology,
     clean_up_1st_phase,
+    one_sentence_summary,
 )
 
 try:
@@ -25,7 +26,8 @@ except ImportError:
 BASE_DIR       = Path(__file__).resolve().parents[1]
 STRUCTURED_DIR = BASE_DIR / "structured"
 FINAL_KG_PATH  = STRUCTURED_DIR / "final_kg.json"
-OUT_PATH       = STRUCTURED_DIR / "import_kg.cypher" 
+OUT_PATH       = STRUCTURED_DIR / "import_kg.cypher"
+CURRENT_SENTENCE_KG_PATH = STRUCTURED_DIR / "current_sentence_kg.json"
 
 def save(text: str, file: str) -> str:
     output_file = STRUCTURED_DIR / file
@@ -102,54 +104,52 @@ def reset_final_kg(
 # 2.  core loop ----------------------------------------------------
 # ------------------------------------------------------------------
 def process_document(model, input_file: str = "output.json") -> Dict[str, Any]:
-    """
-    Run the three-stage pipeline *per sentence* and return the final KG dict.
-    """
+    """Run the three-stage pipeline sentence-by-sentence."""
     ensure_final_kg_exists()                     # create empty KG if needed
-    reset_final_kg(backup = False)
+    reset_final_kg(backup=False)
 
-    raw_text  = load_text(input_file)
+    raw_text = load_text(input_file)
     sentences = list(split_into_sentences(raw_text))
     print(f"🟢 {len(sentences)} sentences queued\n")
 
+    summary = ""
     for idx, sentence in enumerate(sentences, start=1):
         print(f"—— Sentence {idx}/{len(sentences)} ——")
-        print(f"—— Sentence —— {sentences[idx-1]}")
-        # ----------------------------------------------------------
+        print(f"—— Sentence —— {sentence}")
+
+        # ------------------------------------------------------
         # (A) simplify
-        # ----------------------------------------------------------
+        # ------------------------------------------------------
         simplified_txt = remove_think_block(simplify_text(sentence, model))
         print("✅✅✅✅✅✅ Simplified text:", simplified_txt)
-        # ----------------------------------------------------------
+
+        # ------------------------------------------------------
         # (B) ontology generation
-        # ----------------------------------------------------------
-        kg_patch_txt   = remove_think_block(
+        # ------------------------------------------------------
+        kg_patch_txt = remove_think_block(
             create_knowledge_ontology(simplified_txt, model)
         )
         print("✅✅✅✅✅✅ Ontology:", kg_patch_txt)
-        
-        kg_after, id_map = update_kg(
+
+        _, id_map = update_kg(
             kg_patch_txt,
             kg_path=FINAL_KG_PATH,
             save=True,
             return_id_map=True,
         )
 
-
-        # ----------------------------------------------------------
+        # ------------------------------------------------------
         # (C) clean-up first pass
-        # ----------------------------------------------------------
-        kg_patch_dict  = json.loads(kg_patch_txt)
-        cleaned_patch  = remove_think_block(
+        # ------------------------------------------------------
+        kg_patch_dict = json.loads(kg_patch_txt)
+        cleaned_patch = remove_think_block(
             clean_up_1st_phase(kg_patch_dict, model)
         )
         print("✅✅✅✅✅✅ Cleaned Edges:", cleaned_patch)
-        # ----------------------------------------------------------
+
+        # ------------------------------------------------------
         # (D) merge into the growing master KG
-        #     `clean_kg` now accepts dict / raw-string / file-path
-        # ----------------------------------------------------------
-        
-        # (D) merge cleaned edges using id_map from same sentence
+        # ------------------------------------------------------
         clean_kg(
             cleaned_patch,
             kg_path=FINAL_KG_PATH,
@@ -158,9 +158,37 @@ def process_document(model, input_file: str = "output.json") -> Dict[str, Any]:
             reassign_edge_ids=True,
             drop_missing=True,
         )
-        
-    # return the final KG object for convenience
-    return json.loads(FINAL_KG_PATH.read_text())
+
+        current_kg = json.loads(FINAL_KG_PATH.read_text())
+        save(current_kg, CURRENT_SENTENCE_KG_PATH.name)
+
+        # ------------------------------------------------------
+        # (E) update running summary
+        # ------------------------------------------------------
+        summary_input = f"{summary} {sentence}".strip() if summary else sentence
+        summary = remove_think_block(one_sentence_summary(summary_input, model))
+        print("✅✅✅✅✅✅ Summary:", summary)
+
+        # ------------------------------------------------------
+        # (F) merge using summary context
+        # ------------------------------------------------------
+        summary_kg_txt = remove_think_block(create_knowledge_ontology(summary, model))
+        update_kg(summary_kg_txt, kg_path=FINAL_KG_PATH, save=True)
+        summary_kg_dict = json.loads(summary_kg_txt)
+        summary_patch = remove_think_block(
+            clean_up_1st_phase(summary_kg_dict, model)
+        )
+        clean_kg(
+            summary_patch,
+            kg_path=FINAL_KG_PATH,
+            save=True,
+            reassign_edge_ids=True,
+            drop_missing=True,
+        )
+
+    final_kg = json.loads(FINAL_KG_PATH.read_text())
+    save(final_kg, CURRENT_SENTENCE_KG_PATH.name)
+    return final_kg
 
 # ------------------------------------------------------------------
 # 3.  run it --------------------------------------------------------
