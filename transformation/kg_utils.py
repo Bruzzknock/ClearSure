@@ -8,9 +8,9 @@ from copy import deepcopy
 _EDGE = Tuple[str, str, str]
 
 _FENCE_RE = re.compile(r"^\s*```(?:json)?\s*|\s*```\s*$", re.I)
-_ID_PREFIX_RE = re.compile(r"^([nsw])(\d+)$")
+_ID_PREFIX_RE = re.compile(r"^([nswr])(\d+)$")
 _EDGE_ID_RE = re.compile(r"^e(\d+)$")
-_BRACKET_REF_RE = re.compile(r"\[(n\d+|s\d+|w\d+)\]")
+_BRACKET_REF_RE = re.compile(r"\[(n\d+|s\d+|w\d+|r\d+)\]")
 
 
 def _strip_fence(text: str) -> str:
@@ -184,7 +184,7 @@ def update_kg(
     patch_nodes = _load_patch(new_kg, "nodes")
     patch_edges = _load_patch(new_kg, "edges")
 
-    node_counters = {p: _max_index(kg["nodes"], p) for p in ("n", "s", "w")}
+    node_counters = {p: _max_index(kg["nodes"], p) for p in ("n", "s", "w", "r")}
     edge_counter = [_max_edge_index(kg["edges"])]
 
     id_map: Dict[str, str] = {}
@@ -291,4 +291,53 @@ def merge_duplicate_nodes(kg: Dict[str, Any]) -> Dict[str, Any]:
             dedup_edges.append(e)
             seen.add(trip)
     kg["edges"] = dedup_edges
+    return kg
+
+
+def causal_edges_to_rules(
+    kg: Dict[str, Any], *, remove_causal_edges: bool = False, source_doc: str | None = None
+) -> Dict[str, Any]:
+    """Convert ``CAUSES`` edges into explicit Rule nodes.
+
+    Each ``CAUSES`` edge ``sA -> sB`` becomes a new ``Rule`` node ``rK`` with
+    ``HAS_CONDITION`` and ``HAS_CONCLUSION`` links to the respective statements.
+
+    Parameters
+    ----------
+    kg : dict
+        Knowledge graph in the internal JSON format.
+    remove_causal_edges : bool, optional
+        If ``True``, drop the original ``CAUSES`` edges after conversion.
+    source_doc : str, optional
+        Optional source document identifier stored on the Rule node.
+
+    Returns
+    -------
+    dict
+        The updated KG.
+    """
+
+    rule_idx = _max_index(kg.get("nodes", []), "r")
+    new_nodes: list[dict] = []
+    new_edges: list[dict] = []
+    keep_edges: list[dict] = []
+
+    for e in kg.get("edges", []):
+        if e.get("relation") == "CAUSES":
+            rule_idx += 1
+            rid = f"r{rule_idx}"
+            label = f"IF [{e['source']}] THEN [{e['target']}]"
+            node = {"id": rid, "label": label, "type": "Rule"}
+            if source_doc is not None:
+                node["sourceDoc"] = source_doc
+            new_nodes.append(node)
+            new_edges.append({"source": rid, "relation": "HAS_CONDITION", "target": e["source"]})
+            new_edges.append({"source": rid, "relation": "HAS_CONCLUSION", "target": e["target"]})
+            if not remove_causal_edges:
+                keep_edges.append(e)
+        else:
+            keep_edges.append(e)
+
+    kg.setdefault("nodes", []).extend(new_nodes)
+    kg["edges"] = keep_edges + new_edges
     return kg
