@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Dict, Any, Iterable
 import spacy, warnings
 from langchain_ollama.llms import OllamaLLM
-from kg_utils import clean_kg, update_kg       
+from kg_utils import clean_kg, update_kg, merge_duplicate_nodes
 from LLMs import (
     simplify_text,
     remove_think_block,
@@ -23,11 +23,12 @@ try:
 except ImportError:
     pass
 
-BASE_DIR       = Path(__file__).resolve().parents[1]
+BASE_DIR = Path(__file__).resolve().parents[1]
 STRUCTURED_DIR = BASE_DIR / "structured"
-FINAL_KG_PATH  = STRUCTURED_DIR / "final_kg.json"
-OUT_PATH       = STRUCTURED_DIR / "import_kg.cypher"
+FINAL_KG_PATH = STRUCTURED_DIR / "final_kg.json"
+OUT_PATH = STRUCTURED_DIR / "import_kg.cypher"
 CURRENT_SENTENCE_KG_PATH = STRUCTURED_DIR / "current_sentence_kg.json"
+
 
 def save(text: str, file: str) -> str:
     output_file = STRUCTURED_DIR / file
@@ -39,8 +40,10 @@ def save(text: str, file: str) -> str:
         f.write(text_str)
     return text_str
 
+
 def load_text(file_name: str) -> str:
     return (STRUCTURED_DIR / file_name).read_text(encoding="utf-8")
+
 
 def ensure_final_kg_exists() -> None:
     """
@@ -49,18 +52,20 @@ def ensure_final_kg_exists() -> None:
     if not FINAL_KG_PATH.exists():
         FINAL_KG_PATH.write_text(json.dumps({"nodes": [], "edges": []}, indent=2))
 
+
 # ------------------------------------------------------------------
 # 1.  sentence splitter --------------------------------------------
 # ------------------------------------------------------------------
 # use the tiny model – plenty for sentence boundary detection
 try:
     _nlp = spacy.load("en_core_web_sm", disable=["tagger", "parser", "ner"])
-    _nlp.add_pipe("sentencizer")          # ← sets .is_sent_start flags
+    _nlp.add_pipe("sentencizer")  # ← sets .is_sent_start flags
 except OSError:
     # model missing → fall back to a blank pipeline
     warnings.warn("en_core_web_sm not found; using blank 'en' + sentencizer")
     _nlp = spacy.blank("en")
     _nlp.add_pipe("sentencizer")
+
 
 def split_into_sentences(text: str) -> Iterable[str]:
     doc = _nlp(text)
@@ -69,7 +74,9 @@ def split_into_sentences(text: str) -> Iterable[str]:
         if t:
             yield t
 
+
 import shutil, time
+
 
 def reset_final_kg(
     path: Path = FINAL_KG_PATH,
@@ -105,7 +112,7 @@ def reset_final_kg(
 # ------------------------------------------------------------------
 def process_document(model, input_file: str = "output.json") -> Dict[str, Any]:
     """Run the three-stage pipeline sentence-by-sentence."""
-    ensure_final_kg_exists()                     # create empty KG if needed
+    ensure_final_kg_exists()  # create empty KG if needed
     reset_final_kg(backup=False)
 
     raw_text = load_text(input_file)
@@ -142,9 +149,7 @@ def process_document(model, input_file: str = "output.json") -> Dict[str, Any]:
         # (C) clean-up first pass
         # ------------------------------------------------------
         kg_patch_dict = json.loads(kg_patch_txt)
-        cleaned_patch = remove_think_block(
-            clean_up_1st_phase(kg_patch_dict, model)
-        )
+        cleaned_patch = remove_think_block(clean_up_1st_phase(kg_patch_dict, model))
         print("✅✅✅✅✅✅ Cleaned Edges:", cleaned_patch)
 
         # ------------------------------------------------------
@@ -175,9 +180,7 @@ def process_document(model, input_file: str = "output.json") -> Dict[str, Any]:
         summary_kg_txt = remove_think_block(create_knowledge_ontology(summary, model))
         update_kg(summary_kg_txt, kg_path=FINAL_KG_PATH, save=True)
         summary_kg_dict = json.loads(summary_kg_txt)
-        summary_patch = remove_think_block(
-            clean_up_1st_phase(summary_kg_dict, model)
-        )
+        summary_patch = remove_think_block(clean_up_1st_phase(summary_kg_dict, model))
         clean_kg(
             summary_patch,
             kg_path=FINAL_KG_PATH,
@@ -187,8 +190,11 @@ def process_document(model, input_file: str = "output.json") -> Dict[str, Any]:
         )
 
     final_kg = json.loads(FINAL_KG_PATH.read_text())
+    final_kg = merge_duplicate_nodes(final_kg)
+    save(final_kg, FINAL_KG_PATH.name)
     save(final_kg, CURRENT_SENTENCE_KG_PATH.name)
     return final_kg
+
 
 # ------------------------------------------------------------------
 # 3.  run it --------------------------------------------------------
@@ -203,12 +209,13 @@ if __name__ == "__main__":
     )
 
     final_kg = process_document(model, input_file="output.json")
-    save(final_kg,"final_kg.json")
+    save(final_kg, "final_kg.json")
     print("\n✅ Done. final_kg.json now contains", len(final_kg["edges"]), "edges.")
 
     from run_pipeline import load_and_push, clear_database
-    clear_database(drop_meta=True)           # wipe
-    load_and_push(save_to=OUT_PATH)          # reload + save copy
+
+    clear_database(drop_meta=True)  # wipe
+    load_and_push(save_to=OUT_PATH)  # reload + save copy
     print("FINAL_KG_PATH =", FINAL_KG_PATH.resolve())
     print("OUT_PATH =", OUT_PATH.resolve())
     print("✅ Graph ingested and written")
