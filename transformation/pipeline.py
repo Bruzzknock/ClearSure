@@ -5,6 +5,8 @@ import json, os
 from pathlib import Path
 from typing import Dict, Any, Iterable
 import spacy, warnings
+import argparse
+import pdfplumber
 from langchain_ollama.llms import OllamaLLM
 from kg_utils import clean_kg, update_kg, merge_duplicate_nodes
 from LLMs import (
@@ -51,6 +53,30 @@ def ensure_final_kg_exists() -> None:
     """
     if not FINAL_KG_PATH.exists():
         FINAL_KG_PATH.write_text(json.dumps({"nodes": [], "edges": []}, indent=2))
+
+
+def extract_text(path: Path) -> str:
+    """Return plain text extracted from *path*.
+
+    Currently supports PDF via pdfplumber; other files are read as UTF-8.
+    """
+    if path.suffix.lower() == ".pdf":
+        with pdfplumber.open(path) as pdf:
+            pages = [page.extract_text() or "" for page in pdf.pages]
+        return "\n".join(pages)
+
+    return path.read_text(encoding="utf-8")
+
+
+def prepare_input_file(src: Path, dest: Path = STRUCTURED_DIR / "output.json") -> str:
+    """Extract text from *src* and write it to *dest*.
+
+    Returns the basename of the written file for `process_document`.
+    """
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    text = extract_text(src)
+    dest.write_text(text, encoding="utf-8")
+    return dest.name
 
 
 # ------------------------------------------------------------------
@@ -200,7 +226,16 @@ def process_document(model, input_file: str = "output.json") -> Dict[str, Any]:
 # 3.  run it --------------------------------------------------------
 # ------------------------------------------------------------------
 if __name__ == "__main__":
-    os.environ["OLLAMA_HOST"] = os.environ["OLLAMA_HOST_PC"]
+    parser = argparse.ArgumentParser(
+        description="Extract a document into a KG and push to Neo4j"
+    )
+    parser.add_argument("path", type=Path, help="Path to a PDF or text file to process")
+    args = parser.parse_args()
+
+    os.environ["OLLAMA_HOST"] = os.environ.get(
+        "OLLAMA_HOST_PC", os.environ.get("OLLAMA_HOST", "")
+    )
+
     model = OllamaLLM(
         model="deepseek-r1:14b",
         base_url=os.environ["OLLAMA_HOST"],
@@ -208,7 +243,9 @@ if __name__ == "__main__":
         temperature=0.0,
     )
 
-    final_kg = process_document(model, input_file="output.json")
+    input_file = prepare_input_file(args.path)
+
+    final_kg = process_document(model, input_file=input_file)
     save(final_kg, "final_kg.json")
     print("\n✅ Done. final_kg.json now contains", len(final_kg["edges"]), "edges.")
 
