@@ -145,12 +145,15 @@ NODE-RULES
 2. **Time-anchor nodes** (all wN lines)  
    • Shape:  {{ "id":"wN", "label":"<full time phrase>" }}
 
-3. **Statement surrogate nodes**  
-   • One per Fact (not for Alias / Quantity / IF-THEN).  
-   • Copy the full Fact text into  "label".  
-   • Add  "type":"Statement"  and  "edgeId":"e_sN".  
+3. **Statement surrogate nodes**
+   • One per Fact (not for Alias / Quantity / IF-THEN).
+   • Copy the full Fact text into  "label".
+   • Add  "type":"Statement"  and  "edgeId":"e_sN".
    • Shape:  {{ "id":"sN", "label":"<fact text>", "type":"Statement",
                "edgeId":"e_sN" }}
+
+4. **Rule nodes** for IF/THEN lines
+   • Shape:  {{ "id":"rN", "label":"<rule text>", "type":"Rule" }}
 
 -----------------------------------------------------------------
 EDGE-RULES
@@ -170,10 +173,12 @@ C. **WHEN edges**
    • For any “… [WHEN = wN]” tag attach  
      {{ "source":"sN", "relation":"WHEN", "target":"wN" }}
 
-D. **Logic edges** from IF / THEN lines  
-   • Use  "relation":"CAUSES"  
-   • Example  
-     {{ "source":"s3", "relation":"CAUSES", "target":"s5" }}
+D. **Rule edges** linking Rule nodes to Statements
+   • For each IF/THEN line create one Rule node rN.
+   • Connect it with {{ "source":"rN", "relation":"HAS_CONDITION", "target":"sX" }}
+     for every condition statement, and
+     {{ "source":"rN", "relation":"HAS_CONCLUSION", "target":"sY" }}
+     for every conclusion statement.
 
 -----------------------------------------------------------------
 NAMING & CONSISTENCY
@@ -205,7 +210,8 @@ s4 - the test occurs [WHEN = w1].
     {{"id":"w1","label":"at 09:00 UTC"}},
     {{"id":"s1","label":"Ada Lovelace waited seven minutes.","type":"Statement","edgeId":"e_s1"}},
     {{"id":"s2","label":"Ada Lovelace fired at 1 kHz.","type":"Statement","edgeId":"e_s2"}},
-    {{"id":"s4","label":"the test occurs","type":"Statement","edgeId":"e_s4"}}
+    {{"id":"s4","label":"the test occurs","type":"Statement","edgeId":"e_s4"}},
+    {{"id":"r1","label":"IF [s1] THEN [s2]","type":"Rule"}}
   ],
   "edges":[
     {{"source":"n1","relation":"waited","target":"n2","edgeId":"e_s1"}},
@@ -221,7 +227,8 @@ s4 - the test occurs [WHEN = w1].
     {{"source":"w1","relation":"OBJECT_IN","target":"s4"}},
     {{"source":"s4","relation":"WHEN","target":"w1"}},
 
-    {{"source":"s1","relation":"CAUSES","target":"s2"}}
+    {{"source":"r1","relation":"HAS_CONDITION","target":"s1"}},
+    {{"source":"r1","relation":"HAS_CONCLUSION","target":"s2"}}
   ]
 }}
 
