@@ -4,21 +4,21 @@ from pathlib import Path
 
 from langchain_ollama.llms import OllamaLLM
 
-from transformation.pipeline import (
+from pipeline import (
     prepare_input_file,
     process_document,
     FINAL_KG_PATH,
     OUT_PATH,
     INPUT_PATH
 )
-from transformation.summary_logic import (
+from summary_logic import (
     LLMWrapper,
     GLOBAL_LLM,
     build_tree,
     OUTPUT_JSON_PATH,
 )
-from transformation.merge_summary import merge_summary_into_kg
-from transformation.run_pipeline import load_and_push, clear_database
+from merge_summary import merge_summary_into_kg
+from run_pipeline import load_and_push, clear_database
 
 # Set to False if you want to keep existing Neo4j data
 RESET_DB = True
