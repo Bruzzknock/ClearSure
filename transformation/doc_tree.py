@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a hierarchical topic tree from a text document using an LLM."""
+"""Build a hierarchical topic tree from a text or PDF document using an LLM."""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ from typing import List
 from uuid import uuid4
 
 import nltk
+import pdfplumber
 from neo4j import GraphDatabase
 try:
     import openai  # type: ignore
@@ -37,6 +38,19 @@ def get_context_window(model: str) -> int:
         "gpt-4-turbo": 128000,
     }
     return known.get(model, 8192)
+
+
+def extract_text(path: Path) -> str:
+    """Return plain text from *path*.
+
+    Supports PDF via ``pdfplumber`` or reads the file as UTF-8 text otherwise.
+    """
+    if path.suffix.lower() == ".pdf":
+        with pdfplumber.open(path) as pdf:
+            pages = [page.extract_text() or "" for page in pdf.pages]
+        return "\n".join(pages)
+
+    return path.read_text(encoding="utf-8")
 
 
 def call_with_backoff(
@@ -229,21 +243,28 @@ def push_to_neo4j(root: Node, uri: str, user: str, password: str) -> None:
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("input", type=Path, help="UTF-8 text document")
+    p.add_argument(
+        "input",
+        type=Path,
+        nargs="?",
+        default=Path("docs/sample.pdf"),
+        help="PDF or UTF-8 text document",
+    )
     p.add_argument(
         "--model",
-        default=os.environ.get("OPENAI_MODEL", "gpt-3.5-turbo"),
+        default=os.environ.get("OLLAMA_MODEL", "deepseek-r1:14b"),
         help="Model name for the provider",
     )
     p.add_argument(
         "--provider",
         choices=["openai", "ollama"],
-        default=os.environ.get("LLM_PROVIDER", "openai"),
+        default=os.environ.get("LLM_PROVIDER", "ollama"),
         help="Which backend to use for completions",
     )
     p.add_argument(
         "--api-base",
-        default=os.environ.get("LLM_API_BASE"),
+        default=os.environ.get("OLLAMA_HOST")
+        or os.environ.get("OLLAMA_HOST_PC"),
         help="Override API base URL (for OpenAI-compatible endpoints)",
     )
     p.add_argument("--neo4j-uri", default="bolt://localhost:7687")
@@ -268,7 +289,7 @@ def main() -> None:
     except LookupError:
         nltk.download("punkt")
 
-    text = Path(args.input).read_text(encoding="utf-8")
+    text = extract_text(Path(args.input))
     tree = build_tree(text, args.model, args.provider, args.api_base)
     Path(args.out).write_text(json.dumps(tree.to_dict(), indent=2), encoding="utf-8")
     push_to_neo4j(tree, args.neo4j_uri, args.neo4j_user, args.neo4j_pass)
