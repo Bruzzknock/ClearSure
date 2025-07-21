@@ -8,13 +8,12 @@ import spacy, warnings
 import argparse
 import pdfplumber
 from langchain_ollama.llms import OllamaLLM
-from kg_utils import clean_kg, update_kg, merge_duplicate_nodes, _extract_json_block
+from kg_utils import _extract_json_block
 from LLMs import (
     simplify_text,
     remove_think_block,
     create_knowledge_ontology,
     clean_up_1st_phase,
-    one_sentence_summary,
 )
 
 try:
@@ -30,7 +29,7 @@ STRUCTURED_DIR = BASE_DIR / "structured"
 FINAL_KG_PATH = STRUCTURED_DIR / "final_kg.json"
 INPUT_PATH = STRUCTURED_DIR / "input.txt"
 OUT_PATH = STRUCTURED_DIR / "import_kg.cypher"
-CURRENT_SENTENCE_KG_PATH = STRUCTURED_DIR / "current_sentence_kg.json"
+SENTENCE_KGS_PATH = STRUCTURED_DIR / "sentence_kgs.json"
 
 
 def save(text: str, file: str) -> str:
@@ -140,16 +139,17 @@ def reset_final_kg(
 # ------------------------------------------------------------------
 # 2.  core loop ----------------------------------------------------
 # ------------------------------------------------------------------
-def process_document(model, input_file: str = "output.json") -> Dict[str, Any]:
-    """Run the three-stage pipeline sentence-by-sentence."""
-    ensure_final_kg_exists()  # create empty KG if needed
-    reset_final_kg(backup=False)
+def process_document(model, input_file: str = "output.json") -> list[dict]:
+    """Extract a KG for each sentence and store all of them in ``sentence_kgs.json``."""
 
     raw_text = load_text(input_file)
     sentences = list(split_into_sentences(raw_text))
     print(f"🟢 {len(sentences)} sentences queued\n")
 
-    summary = ""
+    SENTENCE_KGS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    sentence_kgs: list[dict] = []
+    SENTENCE_KGS_PATH.write_text("[]", encoding="utf-8")
+
     for idx, sentence in enumerate(sentences, start=1):
         print(f"—— Sentence {idx}/{len(sentences)} ——")
         print(f"—— Sentence —— {sentence}")
@@ -168,62 +168,29 @@ def process_document(model, input_file: str = "output.json") -> Dict[str, Any]:
         )
         print("✅✅✅✅✅✅ Ontology:", kg_patch_txt)
 
-        _, id_map = update_kg(
-            kg_patch_txt,
-            kg_path=FINAL_KG_PATH,
-            save=True,
-            return_id_map=True,
-        )
-
         # ------------------------------------------------------
         # (C) clean-up first pass
         # ------------------------------------------------------
         kg_patch_dict = json.loads(_extract_json_block(kg_patch_txt))
-        cleaned_patch = remove_think_block(clean_up_1st_phase(kg_patch_dict, model))
-        print("✅✅✅✅✅✅ Cleaned Edges:", cleaned_patch)
+        cleaned_patch_txt = remove_think_block(clean_up_1st_phase(kg_patch_dict, model))
+        print("✅✅✅✅✅✅ Cleaned Edges:", cleaned_patch_txt)
 
-        # ------------------------------------------------------
-        # (D) merge into the growing master KG
-        # ------------------------------------------------------
-        clean_kg(
-            cleaned_patch,
-            kg_path=FINAL_KG_PATH,
-            save=True,
-            id_map=id_map,
-            reassign_edge_ids=True,
-            drop_missing=True,
+        edges_patch = json.loads(_extract_json_block(cleaned_patch_txt)).get("edges_patch", [])
+
+        sentence_kg = {
+            "sentence": sentence,
+            "kg": {
+                "nodes": kg_patch_dict.get("nodes", []),
+                "edges": kg_patch_dict.get("edges", []) + edges_patch,
+            },
+        }
+
+        sentence_kgs.append(sentence_kg)
+        SENTENCE_KGS_PATH.write_text(
+            json.dumps(sentence_kgs, indent=2, ensure_ascii=False), encoding="utf-8"
         )
 
-        current_kg = json.loads(FINAL_KG_PATH.read_text())
-        save(current_kg, CURRENT_SENTENCE_KG_PATH.name)
-
-        # ------------------------------------------------------
-        # (E) update running summary
-        # ------------------------------------------------------
-        summary_input = f"{summary} {sentence}".strip() if summary else sentence
-        summary = remove_think_block(one_sentence_summary(summary_input, model))
-        print("✅✅✅✅✅✅ Summary:", summary)
-
-        # ------------------------------------------------------
-        # (F) merge using summary context
-        # ------------------------------------------------------
-        summary_kg_txt = remove_think_block(create_knowledge_ontology(summary, model))
-        update_kg(summary_kg_txt, kg_path=FINAL_KG_PATH, save=True)
-        summary_kg_dict = json.loads(_extract_json_block(summary_kg_txt))
-        summary_patch = remove_think_block(clean_up_1st_phase(summary_kg_dict, model))
-        clean_kg(
-            summary_patch,
-            kg_path=FINAL_KG_PATH,
-            save=True,
-            reassign_edge_ids=True,
-            drop_missing=True,
-        )
-
-    final_kg = json.loads(FINAL_KG_PATH.read_text())
-    final_kg = merge_duplicate_nodes(final_kg)
-    save(final_kg, FINAL_KG_PATH.name)
-    save(final_kg, CURRENT_SENTENCE_KG_PATH.name)
-    return final_kg
+    return sentence_kgs
 
 
 # ------------------------------------------------------------------
@@ -249,14 +216,6 @@ if __name__ == "__main__":
 
     input_file = prepare_input_file(args.path)
 
-    final_kg = process_document(model, input_file=input_file)
-    save(final_kg, "final_kg.json")
-    print("\n✅ Done. final_kg.json now contains", len(final_kg["edges"]), "edges.")
-
-    from run_pipeline import load_and_push, clear_database
-
-    clear_database(drop_meta=True)  # wipe
-    load_and_push(save_to=OUT_PATH)  # reload + save copy
-    print("FINAL_KG_PATH =", FINAL_KG_PATH.resolve())
-    print("OUT_PATH =", OUT_PATH.resolve())
-    print("✅ Graph ingested and written")
+    results = process_document(model, input_file=input_file)
+    save(results, SENTENCE_KGS_PATH.name)
+    print(f"\n✅ Done. {SENTENCE_KGS_PATH.name} contains {len(results)} KGs.")
