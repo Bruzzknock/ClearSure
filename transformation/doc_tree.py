@@ -247,7 +247,7 @@ def parse_args() -> argparse.Namespace:
         "input",
         type=Path,
         nargs="?",
-        default=Path("docs/sample.pdf"),
+        default=Path("..\structured\input.txt"),
         help="PDF or UTF-8 text document",
     )
     p.add_argument(
