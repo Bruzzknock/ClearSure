@@ -1,94 +1,80 @@
-import getpass
 import os
-from langchain_ollama.llms import OllamaLLM
-from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_core.prompts import ChatPromptTemplate
-from pathlib import Path
-import spacy
 import json
-import requests
-from LLMs import simplify_text, remove_think_block, create_knowledge_ontology, clean_up_1st_phase
-from run_pipeline import load_and_push, clear_database
-from kg_utils import clean_kg
+from pathlib import Path
 
-try:
-    # load environment variables from .env file (requires `python-dotenv`)
-    from dotenv import load_dotenv
+from langchain_ollama.llms import OllamaLLM
 
-    load_dotenv()
-except ImportError:
-    pass
+from transformation.pipeline import (
+    prepare_input_file,
+    process_document,
+    FINAL_KG_PATH,
+    OUT_PATH,
+    INPUT_PATH
+)
+from transformation.summary_logic import (
+    LLMWrapper,
+    GLOBAL_LLM,
+    build_tree,
+    OUTPUT_JSON_PATH,
+)
+from transformation.merge_summary import merge_summary_into_kg
+from transformation.run_pipeline import load_and_push, clear_database
+
+# Set to False if you want to keep existing Neo4j data
+RESET_DB = True
 
 
-if os.environ["LANGSMITH_TRACING"] == "true":
-    if "LANGSMITH_API_KEY" not in os.environ:
-        os.environ["LANGSMITH_API_KEY"] = getpass.getpass(
-            prompt="Enter your LangSmith API key (optional): "
-        )
-    if "LANGSMITH_PROJECT" not in os.environ:
-        os.environ["LANGSMITH_PROJECT"] = getpass.getpass(
-        prompt='Enter your LangSmith Project Name (default = "default"): '
+def ensure_ollama_host() -> str:
+    host = os.environ.get("OLLAMA_HOST") or os.environ.get("OLLAMA_HOST_PC")
+    if not host:
+        raise EnvironmentError("Set OLLAMA_HOST or OLLAMA_HOST_PC")
+    return host
+
+
+def phase1_sentence_kg(text_path: Path) -> None:
+    """Run phase 1: sentence-level KG extraction."""
+    host = ensure_ollama_host()
+    model = OllamaLLM(
+        model="deepseek-r1:14b",
+        base_url=host,
+        options={"num_ctx": 8192},
+        temperature=0.0,
     )
-        if not os.environ.get("LANGSMITH_PROJECT"):
-            os.environ["LANGSMITH_PROJECT"] = "default"
+    input_basename = prepare_input_file(text_path)
+    process_document(model, input_file=input_basename)
 
-os.environ["OLLAMA_HOST"] = os.environ["OLLAMA_HOST_PC"]
-PAUSE = True
 
-model = OllamaLLM(model="deepseek-r1:14b",
-    options={"num_ctx": 8192},     #number of tokens an LLM accepts as input. Both system message and user message              
-    base_url=os.environ["OLLAMA_HOST"],
-    temperature=0.0,)
+def phase2_summary(text_path: Path) -> None:
+    """Run phase 2: build summary tree and merge into KG."""
+    llm = LLMWrapper(backend="ollama", model_name="deepseek-r1:14b")
+    # register globally for helper functions in summary_logic
+    globals()['GLOBAL_LLM'] = llm
 
-# robust path resolution
-BASE_DIR = Path(__file__).resolve().parents[1]
+    full_text = text_path.read_text(encoding="utf-8")
+    root = build_tree(full_text)
+    tree = root.to_dict()
+    OUTPUT_JSON_PATH.write_text(json.dumps(tree, indent=2), encoding="utf-8")
 
-file_path = BASE_DIR / "structured" 
-OUT_PATH  = BASE_DIR / "structured" / "import_kg.cypher"
-FINAL_KG_PATH = BASE_DIR / "structured" / "final_kg.json"
+    merge_summary_into_kg(OUTPUT_JSON_PATH, FINAL_KG_PATH, FINAL_KG_PATH)
 
-def save(text: str, file: str) -> str:
-    output_file = file_path / file
-    if isinstance(text, (dict, list)):
-        text_str = json.dumps(text, ensure_ascii=False, indent=2)
-    else:
-        text_str = str(text)
-    with output_file.open("w", encoding="utf-8") as f:
-        f.write(text_str)
-    return text_str
 
-def load(file: str) -> str:
-    input_file = file_path / file
-    with input_file.open(encoding="utf-8") as f:
-        file_content = f.read()
-    return file_content
+def push_to_neo4j() -> None:
+    if RESET_DB:
+        clear_database(drop_meta=True)
+    load_and_push(save_to=OUT_PATH)
 
-if(PAUSE):
-    content = load("output.json")
-    print("✅✅✅✅✅✅✅✅ Input: \n",content)
-    raw_output = simplify_text(content, model)
-    clean_output = remove_think_block(raw_output)
-    result = save(clean_output, "simplified_text.txt")
-    print("✅✅✅✅✅✅✅✅ Output: \n",result)
 
-if(PAUSE):
-    simplified = load("simplified_text.txt")
-    print("✅✅✅✅✅✅✅✅ Input: \n",simplified)
-    raw_output = create_knowledge_ontology(simplified,model)
-    clean_output = remove_think_block(raw_output)
-    result = save(clean_output, "final_kg.json")
-    print("✅✅✅✅✅✅✅✅ Inspected text: \n",result)
-    
-if(PAUSE):
-    kg = json.loads(load("final_kg.json"))
-    # print("✅✅✅✅✅✅✅✅ Input: \n",kg)
-    raw_output = clean_up_1st_phase(kg,model)
-    clean_output = remove_think_block(raw_output)
-    result = save(clean_output, "cleaned_kg.json")
-    print("✅✅✅✅✅✅✅✅ Cleaned edges: \n",result)
-    clean_kg(result, kg_path=FINAL_KG_PATH)
-    
-if(PAUSE):
-    clear_database(drop_meta=True)           # wipe
-    load_and_push(save_to=OUT_PATH)          # reload + save copy
-    print("✅ Graph ingested and written to", OUT_PATH)
+def main() -> None:
+    if not INPUT_PATH.exists():
+        raise FileNotFoundError(INPUT_PATH)
+
+    phase1_sentence_kg(INPUT_PATH)
+    phase2_summary(INPUT_PATH)
+    push_to_neo4j()
+
+    print(f"KG saved to {FINAL_KG_PATH}")
+    print(f"Summary tree saved to {OUTPUT_JSON_PATH}")
+
+
+if __name__ == "__main__":
+    main()

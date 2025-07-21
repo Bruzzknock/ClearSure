@@ -1,1 +1,0 @@
-This is a sample input text for the ClearSure pipeline.

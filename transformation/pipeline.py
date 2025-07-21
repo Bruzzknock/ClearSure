@@ -28,6 +28,7 @@ except ImportError:
 BASE_DIR = Path(__file__).resolve().parents[1]
 STRUCTURED_DIR = BASE_DIR / "structured"
 FINAL_KG_PATH = STRUCTURED_DIR / "final_kg.json"
+INPUT_PATH = STRUCTURED_DIR / "input.txt"
 OUT_PATH = STRUCTURED_DIR / "import_kg.cypher"
 CURRENT_SENTENCE_KG_PATH = STRUCTURED_DIR / "current_sentence_kg.json"
 
