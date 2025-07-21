@@ -11,13 +11,6 @@ from pipeline import (
     OUT_PATH,
     INPUT_PATH
 )
-import summary_logic
-from summary_logic import (
-    LLMWrapper,
-    build_tree,
-    OUTPUT_JSON_PATH,
-)
-from merge_summary import merge_summary_into_kg
 from run_pipeline import load_and_push, clear_database
 
 # Set to False if you want to keep existing Neo4j data
@@ -45,17 +38,8 @@ def phase1_sentence_kg(text_path: Path) -> None:
 
 
 def phase2_summary(text_path: Path) -> None:
-    """Run phase 2: build summary tree and merge into KG."""
-    llm = LLMWrapper(backend="ollama", model_name="deepseek-r1:14b")
-    # register globally for helper functions in summary_logic
-    summary_logic.GLOBAL_LLM = llm
-
-    full_text = text_path.read_text(encoding="utf-8")
-    root = build_tree(full_text)
-    tree = root.to_dict()
-    OUTPUT_JSON_PATH.write_text(json.dumps(tree, indent=2), encoding="utf-8")
-
-    merge_summary_into_kg(OUTPUT_JSON_PATH, FINAL_KG_PATH, FINAL_KG_PATH)
+    # TODO
+    return None
 
 
 def push_to_neo4j() -> None:
@@ -68,12 +52,11 @@ def main() -> None:
     if not INPUT_PATH.exists():
         raise FileNotFoundError(INPUT_PATH)
 
-    phase1_sentence_kg(INPUT_PATH)
+    #phase1_sentence_kg(INPUT_PATH)
     phase2_summary(INPUT_PATH)
     push_to_neo4j()
 
     print(f"KG saved to {FINAL_KG_PATH}")
-    print(f"Summary tree saved to {OUTPUT_JSON_PATH}")
 
 
 if __name__ == "__main__":
