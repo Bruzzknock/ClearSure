@@ -27,7 +27,10 @@ node_ids = set()
 # Here: NO "for graph in kg"
 for node in kg["nodes"]:
     nid = node["id"]
-    label = escape(node["label"])
+    # Not all nodes are guaranteed to carry a `label` field.  If it's
+    # missing we fall back to an empty string so the conversion still
+    # succeeds rather than failing with a KeyError.
+    label = escape(node.get("label", ""))
 
     # Avoid duplicating the same node
     if nid in node_ids:
