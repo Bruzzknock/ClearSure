@@ -11,9 +11,9 @@ from pipeline import (
     OUT_PATH,
     INPUT_PATH
 )
+import summary_logic
 from summary_logic import (
     LLMWrapper,
-    GLOBAL_LLM,
     build_tree,
     OUTPUT_JSON_PATH,
 )
@@ -48,7 +48,7 @@ def phase2_summary(text_path: Path) -> None:
     """Run phase 2: build summary tree and merge into KG."""
     llm = LLMWrapper(backend="ollama", model_name="deepseek-r1:14b")
     # register globally for helper functions in summary_logic
-    globals()['GLOBAL_LLM'] = llm
+    summary_logic.GLOBAL_LLM = llm
 
     full_text = text_path.read_text(encoding="utf-8")
     root = build_tree(full_text)
