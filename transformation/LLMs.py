@@ -246,6 +246,18 @@ def remove_think_block(text: str) -> str:
     # Remove <think>...</think> including the tags
     return re.sub(r"<think>.*?</think>\s*", "", text, flags=re.DOTALL)
 
+
+def clean_label(text: str) -> str:
+    """Return *text* without think blocks, quotes, or markup prefixes."""
+    text = remove_think_block(text).strip()
+    # Remove leading 'Node Label:' or 'Label:' style prefixes
+    text = re.sub(r'^(?:node\s*label|label)\s*:\s*', "", text, flags=re.I)
+    # Strip common quote or emphasis markers
+    if text.startswith("**") and text.endswith("**"):
+        text = text[2:-2]
+    text = text.strip("\"'`*")
+    return text.strip()
+
 def clean_up_1st_phase(text: str, model):
     prompt_template = PromptTemplate.from_template(
         """
