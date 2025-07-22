@@ -14,10 +14,18 @@ from pipeline import (
     OUT_PATH,
     STRUCTURED_DIR,
     SENTENCE_KGS_PATH,
+    INPUT_PATH,
 )
 from run_pipeline import load_and_push, clear_database
 import doc_tree
 from kg_utils import update_kg, clean_kg
+
+VERBOSE = False
+
+
+def log(msg: str) -> None:
+    if VERBOSE:
+        print(msg)
 
 # Set to False if you want to keep existing Neo4j data
 RESET_DB = True
@@ -72,7 +80,7 @@ def phase2_summary(text_path: Path) -> None:
     tree = doc_tree.build_tree(text, model)
     TOPIC_TREE_PATH.write_text(json.dumps(tree.to_dict(), indent=2), encoding="utf-8")
 
-    reset_final_kg(FINAL_KG_PATH, backup=False, verbose=False)
+    reset_final_kg(FINAL_KG_PATH, backup=False, verbose=VERBOSE)
 
     sentence_kgs = json.loads(SENTENCE_KGS_PATH.read_text(encoding="utf-8"))
 
@@ -105,21 +113,33 @@ def push_to_neo4j() -> None:
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Run the ClearSure pipeline")
-    p.add_argument("--input", type=Path, required=True, help="Document to process")
+    p.add_argument(
+        "--input",
+        type=Path,
+        default=INPUT_PATH,
+        help="Document to process (default: structured/input.txt)",
+    )
     p.add_argument("--no-reset-db", action="store_true", help="Keep existing Neo4j data")
+    p.add_argument("-v", "--verbose", action="store_true", help="Print progress")
     return p.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    global RESET_DB
+    global RESET_DB, VERBOSE
     RESET_DB = not args.no_reset_db
+    VERBOSE = args.verbose
+    doc_tree.VERBOSE = VERBOSE
 
+    log(f"📄 Using input file: {args.input}")
     if not args.input.exists():
         raise FileNotFoundError(args.input)
 
+    log("🚀 Phase 1: Sentence KG extraction")
     phase1_sentence_kg(args.input)
+    log("🚀 Phase 2: Build summary and merge KGs")
     phase2_summary(args.input)
+    log("🚀 Pushing KG to Neo4j")
     push_to_neo4j()
 
     print(f"KG saved to {FINAL_KG_PATH}")
