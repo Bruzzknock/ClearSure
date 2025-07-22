@@ -96,12 +96,29 @@ if "parser" not in _nlp.pipe_names and "senter" not in _nlp.pipe_names:
     _nlp.add_pipe("sentencizer")
 
 
-def split_into_sentences(text: str) -> Iterable[str]:
+def split_into_sentences(text: str) -> Iterable[tuple[str, int, int]]:
+    """Yield ``(sentence, start, end)`` triples for *text*.
+
+    ``start`` and ``end`` are character offsets (inclusive) referring to the
+    original text.  Leading/trailing whitespace is stripped from the returned
+    sentence and offsets adjusted accordingly.
+    """
+
     doc = _nlp(text)
     for sent in doc.sents:
-        t = sent.text.strip()
-        if t:
-            yield t
+        raw = sent.text
+        if not raw.strip():
+            continue
+
+        start = sent.start_char
+        end = sent.end_char - 1  # spaCy end_char is exclusive
+
+        lstrip = len(raw) - len(raw.lstrip())
+        rstrip = len(raw) - len(raw.rstrip())
+
+        start += lstrip
+        end -= rstrip
+        yield raw.strip(), start, end
 
 
 import shutil, time
@@ -150,7 +167,7 @@ def process_document(model, input_file: str = "output.json") -> list[dict]:
     sentence_kgs: list[dict] = []
     SENTENCE_KGS_PATH.write_text("[]", encoding="utf-8")
 
-    for idx, sentence in enumerate(sentences, start=1):
+    for idx, (sentence, start_pos, end_pos) in enumerate(sentences, start=1):
         print(f"—— Sentence {idx}/{len(sentences)} ——")
         print(f"—— Sentence —— {sentence}")
 
@@ -179,6 +196,8 @@ def process_document(model, input_file: str = "output.json") -> list[dict]:
 
         sentence_kg = {
             "sentence": sentence,
+            "char_start": start_pos,
+            "char_end": end_pos,
             "kg": {
                 "nodes": kg_patch_dict.get("nodes", []),
                 "edges": kg_patch_dict.get("edges", []) + edges_patch,
