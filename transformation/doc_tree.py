@@ -34,6 +34,13 @@ except Exception:  # pragma: no cover - optional dependency
     openai = None
 import requests
 
+VERBOSE = False
+
+
+def log(msg: str) -> None:
+    if VERBOSE:
+        print(msg)
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -76,6 +83,7 @@ def call_with_backoff(
 
     delay = 1
     for attempt in range(max_attempts):
+        log(f"🤖 LLM call attempt {attempt + 1}/{max_attempts}")
         try:
             if provider == "openai":
                 if openai is None:
@@ -161,12 +169,16 @@ def _ensure_length(text: str, limit: int) -> str:
 
 def label_text(text: str, model: str, ctx_limit: int, provider: str, base_url: str | None) -> str:
     text = _ensure_length(text, ctx_limit)
+    snippet = text.replace("\n", " ")[:60]
+    log(f"✏️  Labeling text: {snippet}...")
     prompt = (
         "Give a concise node label (<= 12 words) describing the following text:"\
         f"\n\n{text}"
     )
     messages = [{"role": "user", "content": prompt}]
-    return call_with_backoff(messages, model, provider, base_url)
+    label = call_with_backoff(messages, model, provider, base_url)
+    log(f"🏷️  Labeled as: {label}")
+    return label
 
 
 def sentence_topic_same(topic: str, sentence: str, model: str, ctx_limit: int, provider: str, base_url: str | None) -> bool:
@@ -174,8 +186,11 @@ def sentence_topic_same(topic: str, sentence: str, model: str, ctx_limit: int, p
         f"Topic: {topic}\nSentence: {sentence}\n" "Does the sentence elaborate on this topic? Answer yes or no."
     )
     prompt = _ensure_length(prompt, ctx_limit)
+    log(f"🤔 Checking if sentence relates to '{topic}'")
     reply = call_with_backoff([{"role": "user", "content": prompt}], model, provider, base_url)
-    return reply.lower().startswith("yes")
+    result = reply.lower().startswith("yes")
+    log(f"✅ Relation result: {result}")
+    return result
 
 
 def phase2(
@@ -205,6 +220,7 @@ def phase2(
                 char_end=offset + end - 1,
                 parent=parent.id,
             )
+            log(f"🪧 New node: {label} [{node.char_start}-{node.char_end}]")
             parent.children.append(node)
             phase2(text[end:], parent, offset + end, model, ctx_limit, provider, base_url)
             return
@@ -214,12 +230,15 @@ def phase2(
         char_end=offset + spans[-1][1] - 1,
         parent=parent.id,
     )
+    log(f"🪧 New node: {label} [{node.char_start}-{node.char_end}]")
     parent.children.append(node)
 
 
 def build_tree(text: str, model: str, provider: str, base_url: str | None) -> Node:
     ctx = get_context_window(model)
+    log("🌳 Building topic tree")
     root_name = label_text(text, model, ctx // 2, provider, base_url)
+    log(f"🌲 Root topic: {root_name}")
     root = Node(name=root_name, char_start=0, char_end=len(text) - 1, parent=None)
     phase2(text, root, 0, model, ctx // 2, provider, base_url)
     return root
@@ -232,9 +251,11 @@ def build_tree(text: str, model: str, provider: str, base_url: str | None) -> No
 
 
 def push_to_neo4j(root: Node, uri: str, user: str, password: str) -> None:
+    log(f"🔗 Connecting to Neo4j at {uri}")
     driver = GraphDatabase.driver(uri, auth=(user, password))
     with driver.session() as session:
         def _create(node: Node, parent_id: str | None):
+            log(f"➡️  Pushing node '{node.name}' ({node.id})")
             session.run(
                 "MERGE (n:Topic {id:$id}) SET n.name=$name, n.char_start=$cs, n.char_end=$ce",
                 id=node.id,
@@ -254,6 +275,7 @@ def push_to_neo4j(root: Node, uri: str, user: str, password: str) -> None:
 
         _create(root, None)
     driver.close()
+    log("✅ Finished pushing to Neo4j")
 
 
 # ---------------------------------------------------------------------------
@@ -291,11 +313,14 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--neo4j-user", default="neo4j")
     p.add_argument("--neo4j-pass", default="neo4j")
     p.add_argument("--out", default="topic_tree.json")
+    p.add_argument("--verbose", action="store_true", help="Print progress")
     return p.parse_args()
 
 
 def main() -> None:
     args = parse_args()
+    global VERBOSE
+    VERBOSE = args.verbose
     if args.provider == "openai" and openai is not None:
         openai.api_key = os.environ.get("OPENAI_API_KEY")
         if args.api_base:
@@ -309,8 +334,10 @@ def main() -> None:
     except LookupError:
         nltk.download("punkt")
 
+    log(f"📄 Reading {args.input}")
     text = extract_text(Path(args.input))
     tree = build_tree(text, args.model, args.provider, args.api_base)
+    log(f"💾 Writing tree to {args.out}")
     Path(args.out).write_text(json.dumps(tree.to_dict(), indent=2), encoding="utf-8")
     push_to_neo4j(tree, args.neo4j_uri, args.neo4j_user, args.neo4j_pass)
 
