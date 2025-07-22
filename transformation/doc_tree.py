@@ -6,8 +6,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import random
-import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List
@@ -28,11 +26,8 @@ os.environ["OLLAMA_HOST"] = os.environ.get(
 import nltk
 import pdfplumber
 from neo4j import GraphDatabase
-try:
-    import openai  # type: ignore
-except Exception:  # pragma: no cover - optional dependency
-    openai = None
-import requests
+from langchain_ollama.llms import OllamaLLM
+from LLMs import label_text, sentence_topic_same
 
 VERBOSE = False
 
@@ -46,17 +41,17 @@ def log(msg: str) -> None:
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _token_count(text: str) -> int:
-    return len(text.split())
-
-
-def get_context_window(model: str) -> int:
+def get_context_window(model) -> int:
     known = {
         "gpt-3.5-turbo": 16384,
         "gpt-4": 8192,
         "gpt-4-turbo": 128000,
     }
-    return known.get(model, 8192)
+    if isinstance(model, str):
+        key = model
+    else:
+        key = getattr(model, "model", "")
+    return known.get(key, 8192)
 
 
 def extract_text(path: Path) -> str:
@@ -71,69 +66,6 @@ def extract_text(path: Path) -> str:
 
     return path.read_text(encoding="utf-8")
 
-
-def call_with_backoff(
-    messages: List[dict],
-    model: str,
-    provider: str,
-    base_url: str | None,
-    max_attempts: int = 6,
-) -> str:
-    """Send *messages* to the chosen provider with retries."""
-
-    delay = 1
-    for attempt in range(max_attempts):
-        log(f"🤖 LLM call attempt {attempt + 1}/{max_attempts}")
-        try:
-            if provider == "openai":
-                if openai is None:
-                    raise ImportError("openai package not installed")
-                kwargs = {"model": model, "messages": messages}
-                if base_url:
-                    # support both openai>=1 and legacy clients
-                    if hasattr(openai, "OpenAI"):
-                        client = openai.OpenAI(base_url=base_url, api_key=os.getenv("OPENAI_API_KEY"))
-                        res = client.chat.completions.create(**kwargs)
-                        return res.choices[0].message.content.strip()
-                    else:
-                        openai.api_base = base_url
-                        res = openai.ChatCompletion.create(**kwargs)
-                        return res["choices"][0]["message"]["content"].strip()
-                res = openai.ChatCompletion.create(**kwargs)
-                return res["choices"][0]["message"]["content"].strip()
-            else:  # ollama
-                url = base_url or "http://localhost:11434/api/chat"
-                url = url.rstrip("/")
-                if not url.endswith(("api/chat", "api/generate")):
-                    url += "/api/chat"
-
-                payload = {"model": model}
-                if url.endswith("api/chat"):
-                    payload["messages"] = messages
-                    payload["stream"] = False
-                else:  # api/generate expects a single prompt string
-                    prompt = "\n".join(m["content"] for m in messages)
-                    payload.update({"prompt": prompt, "stream": False})
-
-                resp = requests.post(url, json=payload, timeout=60)
-                resp.raise_for_status()
-                data = resp.json()
-                # openai-compatible or ollama native
-                if "message" in data:
-                    return data["message"]["content"].strip()
-                if "choices" in data:
-                    return data["choices"][0]["message"]["content"].strip()
-                if "response" in data:
-                    return data["response"].strip()
-                if "error" in data:
-                    raise RuntimeError(str(data["error"]))
-                raise KeyError("Unexpected response from backend")
-        except Exception:
-            if attempt == max_attempts - 1:
-                raise
-            time.sleep(delay + random.random())
-            delay *= 2
-    raise RuntimeError("Exceeded retry attempts")
 
 
 # ---------------------------------------------------------------------------
@@ -173,51 +105,26 @@ def _ensure_length(text: str, limit: int) -> str:
     return " ".join(tokens[:limit])
 
 
-def label_text(text: str, model: str, ctx_limit: int, provider: str, base_url: str | None) -> str:
-    text = _ensure_length(text, ctx_limit)
-    snippet = text.replace("\n", " ")[:60]
-    log(f"✏️  Labeling text: {snippet}...")
-    prompt = (
-        "Give a concise node label (<= 12 words) describing the following text:"\
-        f"\n\n{text}"
-    )
-    messages = [{"role": "user", "content": prompt}]
-    label = call_with_backoff(messages, model, provider, base_url)
-    log(f"🏷️  Labeled as: {label}")
-    return label
-
-
-def sentence_topic_same(topic: str, sentence: str, model: str, ctx_limit: int, provider: str, base_url: str | None) -> bool:
-    prompt = (
-        f"Topic: {topic}\nSentence: {sentence}\n" "Does the sentence elaborate on this topic? Answer yes or no."
-    )
-    prompt = _ensure_length(prompt, ctx_limit)
-    log(f"🤔 Checking if sentence relates to '{topic}'")
-    reply = call_with_backoff([{"role": "user", "content": prompt}], model, provider, base_url)
-    result = reply.lower().startswith("yes")
-    log(f"✅ Relation result: {result}")
-    return result
 
 
 def phase2(
     text: str,
     parent: Node,
     offset: int,
-    model: str,
+    model,
     ctx_limit: int,
-    provider: str,
-    base_url: str | None,
 ) -> None:
     spans = list(TOKENIZER.span_tokenize(text))
     if not spans:
         return
     first_start, first_end = spans[0]
     first_sentence = text[first_start:first_end]
-    label = label_text(first_sentence, model, ctx_limit, provider, base_url)
+    label = label_text(_ensure_length(first_sentence, ctx_limit), model)
     end = first_end
     for i in range(1, len(spans)):
         sent = text[spans[i][0] : spans[i][1]]
-        if sentence_topic_same(label, sent, model, ctx_limit, provider, base_url):
+        sent_trunc = _ensure_length(sent, ctx_limit)
+        if sentence_topic_same(label, sent_trunc, model):
             end = spans[i][1]
         else:
             node = Node(
@@ -228,7 +135,7 @@ def phase2(
             )
             log(f"🪧 New node: {label} [{node.char_start}-{node.char_end}]")
             parent.children.append(node)
-            phase2(text[end:], parent, offset + end, model, ctx_limit, provider, base_url)
+            phase2(text[end:], parent, offset + end, model, ctx_limit)
             return
     node = Node(
         name=label,
@@ -240,13 +147,13 @@ def phase2(
     parent.children.append(node)
 
 
-def build_tree(text: str, model: str, provider: str, base_url: str | None) -> Node:
+def build_tree(text: str, model) -> Node:
     ctx = get_context_window(model)
     log("🌳 Building topic tree")
-    root_name = label_text(text, model, ctx // 2, provider, base_url)
+    root_name = label_text(_ensure_length(text, ctx // 2), model)
     log(f"🌲 Root topic: {root_name}")
     root = Node(name=root_name, char_start=0, char_end=len(text) - 1, parent=None)
-    phase2(text, root, 0, model, ctx // 2, provider, base_url)
+    phase2(text, root, 0, model, ctx // 2)
     return root
 
 
@@ -303,18 +210,6 @@ def parse_args() -> argparse.Namespace:
         default=os.environ.get("OLLAMA_MODEL", "deepseek-r1:14b"),
         help="Model name for the provider",
     )
-    p.add_argument(
-        "--provider",
-        choices=["openai", "ollama"],
-        default=os.environ.get("LLM_PROVIDER", "ollama"),
-        help="Which backend to use for completions",
-    )
-    p.add_argument(
-        "--api-base",
-        default=os.environ.get("OLLAMA_HOST")
-        or os.environ.get("OLLAMA_HOST_PC"),
-        help="Override API base URL (for OpenAI-compatible endpoints)",
-    )
     p.add_argument("--neo4j-uri", default="bolt://localhost:7687")
     p.add_argument("--neo4j-user", default="neo4j")
     p.add_argument("--neo4j-pass", default="neo4j")
@@ -327,14 +222,12 @@ def main() -> None:
     args = parse_args()
     global VERBOSE
     VERBOSE = args.verbose
-    if args.provider == "openai" and openai is not None:
-        openai.api_key = os.environ.get("OPENAI_API_KEY")
-        if args.api_base:
-            if hasattr(openai, "OpenAI"):
-                openai_client = openai.OpenAI(base_url=args.api_base, api_key=os.getenv("OPENAI_API_KEY"))
-                openai_client  # quiet linter
-            else:
-                openai.api_base = args.api_base
+    model = OllamaLLM(
+        model=args.model,
+        base_url=os.environ["OLLAMA_HOST"],
+        options={"num_ctx": 8192},
+        temperature=0.0,
+    )
     try:
         nltk.data.find("tokenizers/punkt")
     except LookupError:
@@ -342,7 +235,7 @@ def main() -> None:
 
     log(f"📄 Reading {args.input}")
     text = extract_text(Path(args.input))
-    tree = build_tree(text, args.model, args.provider, args.api_base)
+    tree = build_tree(text, model)
     log(f"💾 Writing tree to {args.out}")
     Path(args.out).write_text(json.dumps(tree.to_dict(), indent=2), encoding="utf-8")
     push_to_neo4j(tree, args.neo4j_uri, args.neo4j_user, args.neo4j_pass)

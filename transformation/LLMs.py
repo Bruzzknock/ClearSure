@@ -433,3 +433,22 @@ Create **two** coherent segments that together cover **all** characters in <INPU
         raise ValueError("Spans do not cover entire text.")
 
     return spans
+
+
+def label_text(text: str, model) -> str:
+    """Return a short label describing *text*."""
+    prompt_template = PromptTemplate.from_template(
+        "Give a concise node label (<= 12 words) describing the following text:\n\n{text}"
+    )
+    prompt = prompt_template.format(text=text)
+    return model.invoke(prompt)
+
+
+def sentence_topic_same(topic: str, sentence: str, model) -> bool:
+    """Determine whether *sentence* elaborates on *topic*."""
+    prompt_template = PromptTemplate.from_template(
+        "Topic: {topic}\nSentence: {sentence}\nDoes the sentence elaborate on this topic? Answer yes or no."
+    )
+    prompt = prompt_template.format(topic=topic, sentence=sentence)
+    reply = model.invoke(prompt)
+    return reply.lower().startswith("yes")
