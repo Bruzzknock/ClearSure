@@ -107,7 +107,13 @@ def call_with_backoff(
                 # openai-compatible or ollama native
                 if "message" in data:
                     return data["message"]["content"].strip()
-                return data["choices"][0]["message"]["content"].strip()
+                if "choices" in data:
+                    return data["choices"][0]["message"]["content"].strip()
+                if "response" in data:
+                    return data["response"].strip()
+                if "error" in data:
+                    raise RuntimeError(str(data["error"]))
+                raise KeyError("Unexpected response from backend")
         except Exception:
             if attempt == max_attempts - 1:
                 raise
