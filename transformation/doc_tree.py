@@ -27,7 +27,7 @@ import nltk
 import pdfplumber
 from neo4j import GraphDatabase
 from langchain_ollama.llms import OllamaLLM
-from LLMs import label_text, sentence_topic_same, remove_think_block
+from LLMs import label_text, sentence_topic_same, clean_label
 
 VERBOSE = False
 
@@ -122,7 +122,7 @@ def phase2(
     raw_label = label_text(_ensure_length(first_sentence, ctx_limit), model)
     if "<think>" in raw_label and VERBOSE:
         print(raw_label)
-    label = remove_think_block(raw_label).strip()
+    label = clean_label(raw_label)
     end = first_end
     for i in range(1, len(spans)):
         sent = text[spans[i][0] : spans[i][1]]
@@ -156,7 +156,7 @@ def build_tree(text: str, model) -> Node:
     raw_root = label_text(_ensure_length(text, ctx // 2), model)
     if "<think>" in raw_root and VERBOSE:
         print(raw_root)
-    root_name = remove_think_block(raw_root).strip()
+    root_name = clean_label(raw_root)
     log(f"🌲 Root topic: {root_name}")
     root = Node(name=root_name, char_start=0, char_end=len(text) - 1, parent=None)
     phase2(text, root, 0, model, ctx // 2)
