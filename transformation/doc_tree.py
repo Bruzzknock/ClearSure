@@ -197,6 +197,21 @@ def push_to_neo4j(root: Node, uri: str, user: str, password: str) -> None:
     log("✅ Finished pushing to Neo4j")
 
 
+def clear_neo4j(uri: str, user: str, password: str, drop_meta: bool = False) -> None:
+    """Delete all nodes and optionally indexes/constraints from Neo4j."""
+    log(f"🗑️  Clearing Neo4j at {uri}")
+    driver = GraphDatabase.driver(uri, auth=(user, password))
+    with driver.session() as sess:
+        sess.run("MATCH (n) DETACH DELETE n")
+        if drop_meta:
+            for rec in sess.run("SHOW CONSTRAINTS"):
+                sess.run(f"DROP CONSTRAINT {rec['name']} IF EXISTS")
+            for rec in sess.run("SHOW INDEXES"):
+                sess.run(f"DROP INDEX {rec['name']} IF EXISTS")
+    driver.close()
+    log("✅ Database cleared")
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -220,6 +235,11 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--neo4j-user", default="neo4j")
     p.add_argument("--neo4j-pass", default="neo4j")
     p.add_argument("--out", default="topic_tree.json")
+    p.add_argument(
+        "--reset-db",
+        action="store_true",
+        help="Clear Neo4j database before inserting topics",
+    )
     p.add_argument("--verbose", action="store_true", help="Print progress")
     return p.parse_args()
 
@@ -244,6 +264,8 @@ def main() -> None:
     tree = build_tree(text, model)
     log(f"💾 Writing tree to {args.out}")
     Path(args.out).write_text(json.dumps(tree.to_dict(), indent=2), encoding="utf-8")
+    if args.reset_db:
+        clear_neo4j(args.neo4j_uri, args.neo4j_user, args.neo4j_pass, drop_meta=True)
     push_to_neo4j(tree, args.neo4j_uri, args.neo4j_user, args.neo4j_pass)
 
 
