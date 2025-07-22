@@ -94,7 +94,9 @@ def call_with_backoff(
                 res = openai.ChatCompletion.create(**kwargs)
                 return res["choices"][0]["message"]["content"].strip()
             else:  # ollama
-                url = base_url or "http://localhost:11434/api/chat"
+                url = base_url or "http://localhost:11434/api/generate"
+                if not url.rstrip("/").endswith(("api/chat", "api/generate")):
+                    url = url.rstrip("/") + "/api/generate"
                 resp = requests.post(
                     url,
                     json={"model": model, "messages": messages, "stream": False},
