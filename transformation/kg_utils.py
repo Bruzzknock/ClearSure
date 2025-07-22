@@ -8,9 +8,9 @@ from copy import deepcopy
 _EDGE = Tuple[str, str, str]
 
 _FENCE_RE = re.compile(r"^\s*```(?:json)?\s*|\s*```\s*$", re.I)
-_ID_PREFIX_RE  = re.compile(r"^([nsw])(\d+)$")
+_ID_PREFIX_RE  = re.compile(r"^([nswt])(\d+)$")
 _EDGE_ID_RE    = re.compile(r"^e(\d+)$")
-_BRACKET_REF_RE = re.compile(r"\[(n\d+|s\d+|w\d+)\]")
+_BRACKET_REF_RE = re.compile(r"\[(n\d+|s\d+|w\d+|t\d+)\]")
 
 def _strip_fence(text: str) -> str:
     """Remove ```json fences and surrounding blank lines."""
@@ -176,7 +176,7 @@ def update_kg(
     patch_nodes = _load_patch(new_kg, "nodes")
     patch_edges = _load_patch(new_kg, "edges")
 
-    node_counters = {p: _max_index(kg["nodes"], p) for p in ("n", "s", "w")}
+    node_counters = {p: _max_index(kg["nodes"], p) for p in ("n", "s", "w", "t")}
     edge_counter  = [_max_edge_index(kg["edges"])]
 
     id_map: Dict[str, str] = {}

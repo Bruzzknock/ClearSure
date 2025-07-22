@@ -13,6 +13,7 @@ from LLMs import (
     create_knowledge_ontology,
     clean_up_1st_phase,
 )
+from langchain_core.prompts import PromptTemplate
 
 try:
     # load environment variables from .env file (requires `python-dotenv`)
@@ -98,6 +99,30 @@ def reset_final_kg(
     return empty
 
 
+def build_topic_tree(kg: Dict[str, Any], model) -> Dict[str, Any]:
+    """Return topic nodes and edges linking statements to them."""
+    statements = [n for n in kg.get("nodes", []) if n.get("type") == "Statement"]
+    if not statements:
+        return {"nodes": [], "edges_patch": []}
+
+    # next topic id
+    t_nums = [int(n["id"][1:]) for n in kg.get("nodes", []) if n["id"].startswith("t")]
+    topic_id = f"t{max(t_nums, default=0)+1}"
+
+    full_text = "\n".join(s["label"] for s in statements)
+    prompt = PromptTemplate.from_template(
+        """Summarize the following statements with a concise topic label (<=12 words).\n{input}\nTopic:"""
+    ).format(input=full_text)
+    label = remove_think_block(model.invoke(prompt)).strip().strip("\n")
+
+    # choose root statement (lowest id)
+    root_stmt = min(statements, key=lambda n: int(n["id"][1:]))["id"]
+
+    node = {"id": topic_id, "label": label}
+    edge = {"source": root_stmt, "relation": "BELONGS_TO_TOPIC", "target": topic_id}
+    return {"nodes": [node], "edges_patch": [edge]}
+
+
 # ------------------------------------------------------------------
 # 2.  core loop ----------------------------------------------------
 # ------------------------------------------------------------------
@@ -158,7 +183,20 @@ def process_document(model, input_file: str = "output.json") -> Dict[str, Any]:
             reassign_edge_ids=True,
             drop_missing=True,
         )
-        
+
+    # build topic nodes after processing all sentences
+    kg = json.loads(FINAL_KG_PATH.read_text())
+    topic_patch = build_topic_tree(kg, model)
+    if topic_patch["nodes"]:
+        update_kg(topic_patch, kg_path=FINAL_KG_PATH, save=True)
+        clean_kg(
+            topic_patch,
+            kg_path=FINAL_KG_PATH,
+            save=True,
+            reassign_edge_ids=True,
+            drop_missing=True,
+        )
+
     # return the final KG object for convenience
     return json.loads(FINAL_KG_PATH.read_text())
 

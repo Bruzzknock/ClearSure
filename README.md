@@ -10,3 +10,8 @@ ClearSure is an open-source AI built for context-aware, definitive insights like
 # Some binaries have to be manually installed
 1. powershell choco install poppler
 2. powershell choco install tesseract
+
+## Topic extraction
+After processing all sentences, the pipeline derives a concise topic label from
+the document’s statements. The topic node (`t#`) is linked to the first
+statement via the relation `BELONGS_TO_TOPIC`.
