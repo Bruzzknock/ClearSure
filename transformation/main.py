@@ -18,7 +18,7 @@ from pipeline import (
 )
 from run_pipeline import load_and_push, clear_database
 import doc_tree
-from kg_utils import update_kg, clean_kg
+from kg_utils import update_kg, clean_kg, consolidate_rules_to_topics
 
 VERBOSE = False
 
@@ -106,6 +106,11 @@ def phase2_summary(text_path: Path) -> None:
                     })
         if edges:
             clean_kg({"edges_patch": edges}, kg_path=FINAL_KG_PATH)
+
+    # Simplify topic links by attaching rules directly to their topics
+    kg = json.loads(FINAL_KG_PATH.read_text(encoding="utf-8"))
+    kg = consolidate_rules_to_topics(kg)
+    FINAL_KG_PATH.write_text(json.dumps(kg, indent=2), encoding="utf-8")
 
     return None
 
