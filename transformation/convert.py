@@ -27,18 +27,23 @@ node_ids = set()
 # Here: NO "for graph in kg"
 for node in kg["nodes"]:
     nid = node["id"]
-    label = escape(node["label"])
+    # Not all nodes are guaranteed to carry a `label` field.  If it's
+    # missing we fall back to an empty string so the conversion still
+    # succeeds rather than failing with a KeyError.
+    label = escape(node.get("label", ""))
 
     # Avoid duplicating the same node
     if nid in node_ids:
         continue
     node_ids.add(nid)
 
-    props = {k: v for k, v in node.items() if k not in ["id", "label"]}
+    props = {k: v for k, v in node.items() if k not in ["id", "label", "type"]}
     # Also handle nested attributes
     if "attributes" in props:
         attrs = props.pop("attributes")
         props.update(attrs)
+
+    node_label = node.get("type", "Entity")
 
     prop_str = ""
     if props:
@@ -46,7 +51,7 @@ for node in kg["nodes"]:
         prop_str = ", " + ", ".join(prop_pairs)
 
     cypher_nodes.append(
-        f'CREATE (:Entity {{id: "{nid}", label: "{label}"{prop_str}}});'
+        f'CREATE (:{clean_relation(node_label)} {{id: "{nid}", label: "{label}"{prop_str}}});'
     )
 
 for edge in kg["edges"]:

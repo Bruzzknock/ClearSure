@@ -3,6 +3,8 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.prompts import PromptTemplate
 import re
 import json
+from typing import List
+from kg_utils import _extract_json_block
 
 def simplify_text(text: str, model) -> str:
     prompt_template = PromptTemplate.from_template(
@@ -143,12 +145,15 @@ NODE-RULES
 2. **Time-anchor nodes** (all wN lines)  
    • Shape:  {{ "id":"wN", "label":"<full time phrase>" }}
 
-3. **Statement surrogate nodes**  
-   • One per Fact (not for Alias / Quantity / IF-THEN).  
-   • Copy the full Fact text into  "label".  
-   • Add  "type":"Statement"  and  "edgeId":"e_sN".  
+3. **Statement surrogate nodes**
+   • One per Fact (not for Alias / Quantity / IF-THEN).
+   • Copy the full Fact text into  "label".
+   • Add  "type":"Statement"  and  "edgeId":"e_sN".
    • Shape:  {{ "id":"sN", "label":"<fact text>", "type":"Statement",
                "edgeId":"e_sN" }}
+
+4. **Rule nodes** for IF/THEN lines
+   • Shape:  {{ "id":"rN", "label":"<rule text>", "type":"Rule" }}
 
 -----------------------------------------------------------------
 EDGE-RULES
@@ -168,10 +173,12 @@ C. **WHEN edges**
    • For any “… [WHEN = wN]” tag attach  
      {{ "source":"sN", "relation":"WHEN", "target":"wN" }}
 
-D. **Logic edges** from IF / THEN lines  
-   • Use  "relation":"CAUSES"  
-   • Example  
-     {{ "source":"s3", "relation":"CAUSES", "target":"s5" }}
+D. **Rule edges** linking Rule nodes to Statements
+   • For each IF/THEN line create one Rule node rN.
+   • Connect it with {{ "source":"rN", "relation":"HAS_CONDITION", "target":"sX" }}
+     for every condition statement, and
+     {{ "source":"rN", "relation":"HAS_CONCLUSION", "target":"sY" }}
+     for every conclusion statement.
 
 -----------------------------------------------------------------
 NAMING & CONSISTENCY
@@ -203,7 +210,8 @@ s4 - the test occurs [WHEN = w1].
     {{"id":"w1","label":"at 09:00 UTC"}},
     {{"id":"s1","label":"Ada Lovelace waited seven minutes.","type":"Statement","edgeId":"e_s1"}},
     {{"id":"s2","label":"Ada Lovelace fired at 1 kHz.","type":"Statement","edgeId":"e_s2"}},
-    {{"id":"s4","label":"the test occurs","type":"Statement","edgeId":"e_s4"}}
+    {{"id":"s4","label":"the test occurs","type":"Statement","edgeId":"e_s4"}},
+    {{"id":"r1","label":"IF [s1] THEN [s2]","type":"Rule"}}
   ],
   "edges":[
     {{"source":"n1","relation":"waited","target":"n2","edgeId":"e_s1"}},
@@ -219,7 +227,8 @@ s4 - the test occurs [WHEN = w1].
     {{"source":"w1","relation":"OBJECT_IN","target":"s4"}},
     {{"source":"s4","relation":"WHEN","target":"w1"}},
 
-    {{"source":"s1","relation":"CAUSES","target":"s2"}}
+    {{"source":"r1","relation":"HAS_CONDITION","target":"s1"}},
+    {{"source":"r1","relation":"HAS_CONCLUSION","target":"s2"}}
   ]
 }}
 
@@ -236,6 +245,18 @@ s4 - the test occurs [WHEN = w1].
 def remove_think_block(text: str) -> str:
     # Remove <think>...</think> including the tags
     return re.sub(r"<think>.*?</think>\s*", "", text, flags=re.DOTALL)
+
+
+def clean_label(text: str) -> str:
+    """Return *text* without think blocks, quotes, or markup prefixes."""
+    text = remove_think_block(text).strip()
+    # Remove leading 'Node Label:' or 'Label:' style prefixes
+    text = re.sub(r'^(?:node\s*label|label)\s*:\s*', "", text, flags=re.I)
+    # Strip common quote or emphasis markers
+    if text.startswith("**") and text.endswith("**"):
+        text = text[2:-2]
+    text = text.strip("\"'`*")
+    return text.strip()
 
 def clean_up_1st_phase(text: str, model):
     prompt_template = PromptTemplate.from_template(
@@ -293,3 +314,153 @@ OUTPUT CHECKLIST  (remove before running)
 """)
     prompt = prompt_template.format(input=text)
     return model.invoke(prompt)
+
+def one_sentence_summary(text: str, model) -> str:
+    """
+    Ask the LLM to rewrite *text* as a single, information-complete sentence.
+
+    Returns the raw sentence (stripped).  Raises ValueError if the reply
+    contains line-breaks or multiple sentences.
+    """
+    prompt_template = PromptTemplate.from_template(
+        """
+############################################################
+# ONE-SENTENCE COMPREHENSIVE SUMMARY
+############################################################
+Return **exactly one** English sentence that captures every distinct
+fact and nuance in the <INPUT> block.
+
+RULES
+• One single sentence.  No lists, no line breaks, no commentary.
+• You MAY use conjunctions / clauses to keep everything in.
+• Do NOT omit any key data (names, quantities, dates, causal links).
+
+<INPUT>
+{text}
+</INPUT>
+"""
+    )
+    prompt = prompt_template.format(text=text)
+    reply = model.invoke(prompt).strip()
+    reply  = remove_think_block(reply).strip()
+
+    # quick heuristic: ensure only one sentence (no multiple periods)
+    if reply.count(".") > 1:
+        raise ValueError(f"Expected one sentence, got: {reply}")
+    return reply
+
+
+def propose_split_spans(
+    text: str,
+    model,
+) -> List[dict]:
+    """
+    Ask the LLM to suggest 2–max_segments non-overlapping character-offset
+    spans that together cover *text*.
+
+    The model must return:
+      { "spans": [ { "start": int, "end": int }, … ] }
+
+    *If the model uses half-open slices [start,end), they are converted to
+    inclusive end indices.*
+    """
+    prompt_template = PromptTemplate.from_template(
+        """
+SYSTEM
+You are “DeepSegment-2”.  
+Return only raw JSON; stop after you output it.
+
+USER
+############################################
+#  TWO-SPAN TEXT SPLITTER  →  JSON OUTPUT  #
+############################################
+
+▼ GOAL  
+Create **two** coherent segments that together cover **all** characters in <INPUT>.
+
+▼ HOW TO CHOOSE THE SINGLE SPLIT  
+1. Scan top-to-bottom for the **first strong topic shift**, such as:  
+   • a new top-level heading (numbered or unnumbered)  
+   • a section whose purpose clearly differs from the preceding one  
+   • a blank-line gap followed by a heading-style line (Title Case, ALL CAPS, or leading numbers like “2.”, “1.2”, etc.)  
+2. Place the split **immediately before** that line’s first character.  
+3. If the whole text stays on one topic, fall back to the **closest sentence boundary to the 50 % mark**.  
+4. You must always return two spans; never merge them into one.
+
+▼ OUTPUT FORMAT (raw JSON)  
+{{
+  "spans": [
+    {{"start": <int>, "end": <int>}},   // Segment 1: from char 0 to split-1
+    {{"start": <int>, "end": <int>}}    // Segment 2: from split to last char
+  ]
+}}
+
+▼ RULES (check each ✅)  
+- ✅ Exactly two objects inside "spans".  
+- ✅ 0-based offsets; `end` is **inclusive**.  
+- ✅ No gaps, no overlaps.  
+- ✅ No other keys, no commentary, no Markdown fences.  
+- ✅ After printing the JSON object, stop.
+
+<INPUT>
+{text}
+</INPUT>
+
+"""
+    )
+    prompt = prompt_template.format(text=text)
+    raw_reply = model.invoke(prompt).strip()
+    reply = remove_think_block(raw_reply)
+    reply = _extract_json_block(reply)
+
+    # -------- parse ------------------------------------------------------
+    try:
+        spans = json.loads(reply)["spans"]
+    except Exception as e:
+        raise ValueError(f"LLM did not return valid JSON:\n{reply}") from e
+
+    # -------- normalise half-open slices --------------------------------
+    if spans and spans[-1]["end"] == len(text):
+        for s in spans:
+            s["end"] -= 1                          # make 'end' inclusive
+
+    # -------- sanity checks ---------------------------------------------
+    if not isinstance(spans, list) or len(spans) < 2:
+        raise ValueError(f"Need ≥2 spans, got: {spans}")
+    
+    print("SPANS: ", spans)
+    print("LENGTH TEXT: ", len(text))
+
+    prev_end = -1
+    for span in spans:
+        if {"start", "end"} - span.keys():
+            raise ValueError("Each span must have start & end keys.")
+        if span["start"] != prev_end + 1:
+            raise ValueError("Spans have a gap or are out of order.")
+        if span["start"] > span["end"]:
+            raise ValueError("start > end in span.")
+        prev_end = span["end"]
+
+    if prev_end != len(text) - 1:
+        raise ValueError("Spans do not cover entire text.")
+
+    return spans
+
+
+def label_text(text: str, model) -> str:
+    """Return a short label describing *text*."""
+    prompt_template = PromptTemplate.from_template(
+        "Give a concise node label (<= 12 words) describing the following text:\n\n{text}"
+    )
+    prompt = prompt_template.format(text=text)
+    return model.invoke(prompt)
+
+
+def sentence_topic_same(topic: str, sentence: str, model) -> bool:
+    """Determine whether *sentence* elaborates on *topic*."""
+    prompt_template = PromptTemplate.from_template(
+        "Topic: {topic}\nSentence: {sentence}\nDoes the sentence elaborate on this topic? Answer yes or no."
+    )
+    prompt = prompt_template.format(topic=topic, sentence=sentence)
+    reply = model.invoke(prompt)
+    return reply.lower().startswith("yes")
