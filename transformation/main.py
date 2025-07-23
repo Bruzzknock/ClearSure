@@ -82,6 +82,11 @@ def phase2_summary(text_path: Path) -> None:
 
     reset_final_kg(FINAL_KG_PATH, backup=False, verbose=VERBOSE)
 
+    # Insert Topic nodes into the KG before linking statements to them
+    topic_nodes, child_edges = doc_tree.flatten_tree(tree)
+    if topic_nodes or child_edges:
+        update_kg({"nodes": topic_nodes, "edges": child_edges}, kg_path=FINAL_KG_PATH)
+
     sentence_kgs = json.loads(SENTENCE_KGS_PATH.read_text(encoding="utf-8"))
 
     for sent in sentence_kgs:

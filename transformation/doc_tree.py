@@ -91,6 +91,35 @@ class Node:
         }
 
 
+def flatten_tree(root: "Node") -> tuple[list[dict], list[dict]]:
+    """Return all topic nodes and HAS_CHILD edges from ``root``.
+
+    The output can be fed directly into ``update_kg``/``clean_kg`` helpers.
+    """
+
+    nodes: list[dict] = []
+    edges: list[dict] = []
+
+    def _walk(node: Node) -> None:
+        nodes.append(
+            {
+                "id": node.id,
+                "label": node.name,
+                "type": "Topic",
+                "char_start": node.char_start,
+                "char_end": node.char_end,
+            }
+        )
+        for child in node.children:
+            edges.append(
+                {"source": node.id, "relation": "HAS_CHILD", "target": child.id}
+            )
+            _walk(child)
+
+    _walk(root)
+    return nodes, edges
+
+
 # ---------------------------------------------------------------------------
 # Topic discovery
 # ---------------------------------------------------------------------------
