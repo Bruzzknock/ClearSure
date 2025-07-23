@@ -8,12 +8,14 @@ import spacy, warnings
 import argparse
 import pdfplumber
 from langchain_ollama.llms import OllamaLLM
-from kg_utils import _extract_json_block
+from kg_utils import _extract_json_block, update_kg, clean_kg
 from LLMs import (
     simplify_text,
     remove_think_block,
     create_knowledge_ontology,
     clean_up_1st_phase,
+    label_text,
+    clean_label,
 )
 
 try:
@@ -153,6 +155,39 @@ def reset_final_kg(
     return empty
 
 
+def _max_topic_index(nodes: list[dict]) -> int:
+    idx = [int(n["id"][1:]) for n in nodes if n.get("id", "").startswith("t")]
+    return max(idx, default=0)
+
+
+def build_topic_tree(kg: dict, model) -> dict:
+    """Return topic nodes and edges linking statements to them."""
+    statements = [
+        (n["id"], n.get("label", ""))
+        for n in kg.get("nodes", [])
+        if n.get("type") == "Statement"
+    ]
+    if not statements:
+        return {"nodes": [], "edges": []}
+
+    groups = [statements[i : i + 5] for i in range(0, len(statements), 5)]
+    next_idx = _max_topic_index(kg.get("nodes", []))
+    nodes: list[dict] = []
+    edges: list[dict] = []
+
+    for grp in groups:
+        text = " ".join(lbl for _, lbl in grp)
+        raw = label_text(text, model)
+        label = clean_label(raw)
+        next_idx += 1
+        tid = f"t{next_idx}"
+        nodes.append({"id": tid, "label": label, "type": "Topic"})
+        root_sid = grp[0][0]
+        edges.append({"source": root_sid, "relation": "BELONGS_TO_TOPIC", "target": tid})
+
+    return {"nodes": nodes, "edges": edges}
+
+
 # ------------------------------------------------------------------
 # 2.  core loop ----------------------------------------------------
 # ------------------------------------------------------------------
@@ -166,6 +201,7 @@ def process_document(model, input_file: str = "output.json") -> list[dict]:
     SENTENCE_KGS_PATH.parent.mkdir(parents=True, exist_ok=True)
     sentence_kgs: list[dict] = []
     SENTENCE_KGS_PATH.write_text("[]", encoding="utf-8")
+    ensure_final_kg_exists()
 
     for idx, (sentence, start_pos, end_pos) in enumerate(sentences, start=1):
         print(f"—— Sentence {idx}/{len(sentences)} ——")
@@ -208,6 +244,15 @@ def process_document(model, input_file: str = "output.json") -> list[dict]:
         SENTENCE_KGS_PATH.write_text(
             json.dumps(sentence_kgs, indent=2, ensure_ascii=False), encoding="utf-8"
         )
+
+        kg_patch = sentence_kg["kg"]
+        update_kg(kg_patch, kg_path=FINAL_KG_PATH)
+
+    # Build topics after all sentences are processed
+    current_kg = json.loads(FINAL_KG_PATH.read_text(encoding="utf-8"))
+    topic_patch = build_topic_tree(current_kg, model)
+    if topic_patch["nodes"] or topic_patch["edges"]:
+        clean_kg({"nodes": topic_patch["nodes"], "edges_patch": topic_patch["edges"]}, kg_path=FINAL_KG_PATH)
 
     return sentence_kgs
 

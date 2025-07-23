@@ -8,9 +8,9 @@ from copy import deepcopy
 _EDGE = Tuple[str, str, str]
 
 _FENCE_RE = re.compile(r"^\s*```(?:json)?\s*|\s*```\s*$", re.I)
-_ID_PREFIX_RE = re.compile(r"^([nswr])(\d+)$")
+_ID_PREFIX_RE = re.compile(r"^([nswrt])(\d+)$")
 _EDGE_ID_RE = re.compile(r"^e(\d+)$")
-_BRACKET_REF_RE = re.compile(r"\[(n\d+|s\d+|w\d+|r\d+)\]")
+_BRACKET_REF_RE = re.compile(r"\[(n\d+|s\d+|w\d+|r\d+|t\d+)\]")
 
 
 def _strip_fence(text: str) -> str:
@@ -109,12 +109,14 @@ def clean_kg(
     drop_missing: bool = True,
 ) -> Dict[str, Any]:
     """
-    Merge an *edges_patch* into the KG at *kg_path*.
+    Merge an *edges_patch* (and optional ``nodes`` list) into the KG at
+    *kg_path*.
 
     Parameters
     ----------
     patch
-        Dict or JSON/string containing an `edges_patch` list.
+        Dict or JSON/string containing an ``edges_patch`` list and optionally a
+        ``nodes`` list.
     id_map
         Old-ID→new-ID map returned by `update_kg()` for the *same* sentence.
         Used to rewrite e["source"]/e["target"] so they match renumbered nodes.
@@ -130,6 +132,16 @@ def clean_kg(
     node_ids = {n["id"] for n in kg["nodes"]}
 
     new_edges = deepcopy(_load_patch(patch))  # defensive copy
+    new_nodes = deepcopy(_load_patch(patch, "nodes"))
+
+    # Deduplicate and append nodes first so edges don't get dropped
+    if new_nodes:
+        seen_nodes = _dedupe_nodes(kg["nodes"])
+        for n in new_nodes:
+            if n["id"] not in seen_nodes:
+                kg["nodes"].append(n)
+                node_ids.add(n["id"])
+                seen_nodes.add(n["id"])
 
     # Rewrite source/target using id_map (if provided)
     if id_map:
@@ -184,7 +196,7 @@ def update_kg(
     patch_nodes = _load_patch(new_kg, "nodes")
     patch_edges = _load_patch(new_kg, "edges")
 
-    node_counters = {p: _max_index(kg["nodes"], p) for p in ("n", "s", "w", "r")}
+    node_counters = {p: _max_index(kg["nodes"], p) for p in ("n", "s", "w", "r", "t")}
     edge_counter = [_max_edge_index(kg["edges"])]
 
     id_map: Dict[str, str] = {}
