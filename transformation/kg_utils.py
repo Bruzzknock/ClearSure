@@ -353,3 +353,60 @@ def causal_edges_to_rules(
     kg.setdefault("nodes", []).extend(new_nodes)
     kg["edges"] = keep_edges + new_edges
     return kg
+
+
+def consolidate_rules_to_topics(kg: Dict[str, Any]) -> Dict[str, Any]:
+    """Connect Rule nodes to their common Topic and remove redundant edges.
+
+    If all statements referenced by a Rule belong to the same Topic via
+    ``HAS_STATEMENT`` edges, the Rule itself is linked to that Topic and the
+    individual ``HAS_STATEMENT`` edges from the Topic to those statements are
+    removed.  This keeps the topic tree compact while preserving the logical
+    structure between statements and rules.
+    """
+
+    # Map statement -> list of topic ids
+    stmt_topics: Dict[str, set[str]] = {}
+    for e in kg.get("edges", []):
+        if e.get("relation") == "HAS_STATEMENT":
+            stmt_topics.setdefault(e["target"], set()).add(e["source"])
+
+    # Collect rule information
+    rule_nodes = {n["id"] for n in kg.get("nodes", []) if n.get("type") == "Rule"}
+    rule_refs: Dict[str, set[str]] = {rid: set() for rid in rule_nodes}
+
+    for e in kg.get("edges", []):
+        if e.get("source") in rule_nodes and e.get("relation") in {
+            "HAS_CONDITION",
+            "HAS_CONCLUSION",
+        }:
+            rule_refs[e["source"]].add(e["target"])
+
+    # Prepare edge lookup for removals
+    existing_edges = {(e["source"], e["relation"], e["target"]): e for e in kg.get("edges", [])}
+
+    next_edge_idx = _max_edge_index(kg.get("edges", []))
+    new_edges: list[dict] = []
+    remove_keys: set[tuple[str, str, str]] = set()
+
+    for rid, stmts in rule_refs.items():
+        topics: set[str] = set()
+        for sid in stmts:
+            topics.update(stmt_topics.get(sid, set()))
+        if len(topics) == 1:
+            topic = next(iter(topics))
+            next_edge_idx += 1
+            new_edges.append(
+                {"source": topic, "relation": "HAS_STATEMENT", "target": rid, "edgeId": f"e{next_edge_idx}"}
+            )
+            for sid in stmts:
+                key = (topic, "HAS_STATEMENT", sid)
+                if key in existing_edges:
+                    remove_keys.add(key)
+
+    if remove_keys or new_edges:
+        kg["edges"] = [
+            e for e in kg.get("edges", []) if (e["source"], e["relation"], e["target"]) not in remove_keys
+        ] + new_edges
+
+    return kg
