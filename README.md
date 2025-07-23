@@ -22,5 +22,9 @@ Documents are ingested and converted to a two-layer knowledge graph:
    operational view of the "brain". Logical rules are explicit `:Rule` nodes
    connected to statements via `:HAS_CONDITION` and `:HAS_CONCLUSION` edges.
 
+3. **Topic layer** – After processing all statements, related sentences are
+   summarised into short topics (`t#`). Statement nodes link to these topics via
+   `BELONGS_TO_TOPIC`, providing a lightweight navigation hierarchy.
+
 This design keeps logical operators out of entity space while making it easy to
 traverse from conditions to conclusions.
