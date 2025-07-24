@@ -11,8 +11,9 @@ OUT_PATH = STRUCTURED_DIR / "import_kg.cypher"
 
 def main() -> None:
     os.environ["OLLAMA_HOST"] = os.environ.get("OLLAMA_HOST_PC", os.environ.get("OLLAMA_HOST", ""))
+    model_name = os.environ.get("OLLAMA_MODEL", "deepseek-r1:14b")
     model = OllamaLLM(
-        model="deepseek-r1:14b",
+        model=model_name,
         base_url=os.environ["OLLAMA_HOST"],
         options={"num_ctx": 8192},
         temperature=0.0,

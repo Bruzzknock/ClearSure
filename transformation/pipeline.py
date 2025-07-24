@@ -66,8 +66,9 @@ def process_document(model, input_file: str = "output.json") -> Dict[str, Any]:
 # ------------------------------------------------------------------
 if __name__ == "__main__":
     os.environ["OLLAMA_HOST"] = os.environ["OLLAMA_HOST_PC"]
+    model_name = os.environ.get("OLLAMA_MODEL", "deepseek-r1:14b")
     model = OllamaLLM(
-        model="deepseek-r1:14b",
+        model=model_name,
         base_url=os.environ["OLLAMA_HOST"],
         options={"num_ctx": 8192},
         temperature=0.0,
