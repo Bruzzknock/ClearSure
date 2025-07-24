@@ -30,6 +30,7 @@ from typing import List
 from unstructured.partition.auto import partition
 from unstructured.chunking.basic import chunk_elements
 from unstructured.documents.elements import Element
+import pdfplumber
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +106,33 @@ def write_output(elements: List[Element], out: Path | None, src: Path) -> None:
     records = [el.to_dict() for el in elements]
     out.write_text(json.dumps(records, indent=2, ensure_ascii=False), encoding="utf-8")
     logger.info("Wrote %d elements ➜ %s", len(records), out)
+
+
+def extract_text(path: Path) -> str:
+    """Return plain text extracted from *path*.
+
+    Currently supports PDF via pdfplumber; other files are read as UTF-8.
+    """
+    if path.suffix.lower() == ".pdf":
+        with pdfplumber.open(path) as pdf:
+            pages = [page.extract_text() or "" for page in pdf.pages]
+        return "\n".join(pages)
+
+    return path.read_text(encoding="utf-8")
+
+
+def ingest_directory(input_dir: Path, output_file: Path, verbose: bool = False) -> None:
+    """Ingest all PDFs from *input_dir* and write combined text to *output_file*."""
+    texts = []
+    for pdf in sorted(input_dir.glob("*.pdf")):
+        if verbose:
+            logger.info("Reading %s", pdf)
+        texts.append(extract_text(pdf))
+
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+    output_file.write_text("\n\n".join(texts), encoding="utf-8")
+    if verbose:
+        logger.info("Wrote %d documents to %s", len(texts), output_file)
 
 def main() -> None:
     args = _parse_args()
