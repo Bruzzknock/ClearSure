@@ -2,8 +2,73 @@
 # --- add near the top -------------------------------------------------------
 import json, re, os
 from pathlib import Path
-from typing import Union, Dict, Any, List, Tuple, Optional
+from typing import Union, Dict, Any, List, Tuple, Optional, Iterable
+import spacy, warnings
 from copy import deepcopy
+import shutil, time
+
+# ------------------------------------------------------------------
+#  basic helpers ---------------------------------------------------
+# ------------------------------------------------------------------
+
+def clean_relation(s: str) -> str:
+    """Normalise relation names for Cypher."""
+    return s.upper().replace(" ", "_").replace("-", "_")
+
+
+def escape(text: str) -> str:
+    """Escape double quotes inside Cypher strings."""
+    return text.replace('"', '\\"')
+
+
+def save_file(text: str | dict | list, path: Path) -> str:
+    """Write *text* to *path* and return the written string."""
+    if isinstance(text, (dict, list)):
+        content = json.dumps(text, ensure_ascii=False, indent=2)
+    else:
+        content = str(text)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content, encoding="utf-8")
+    return content
+
+
+def load_file(path: Path) -> str:
+    """Return the contents of *path* as text."""
+    return path.read_text(encoding="utf-8")
+
+
+try:
+    _nlp = spacy.load("en_core_web_sm", disable=["tagger", "parser", "ner"])
+    _nlp.add_pipe("sentencizer")
+except OSError:
+    warnings.warn("en_core_web_sm not found; using blank 'en' + sentencizer")
+    _nlp = spacy.blank("en")
+    _nlp.add_pipe("sentencizer")
+
+
+def split_into_sentences(text: str) -> Iterable[str]:
+    """Yield individual sentences from *text*."""
+    doc = _nlp(text)
+    for sent in doc.sents:
+        t = sent.text.strip()
+        if t:
+            yield t
+
+
+def ensure_final_kg_exists(path: Path) -> None:
+    if not path.exists():
+        path.write_text(json.dumps({"nodes": [], "edges": []}, indent=2))
+
+
+def reset_final_kg(path: Path, backup: bool = True) -> dict:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists() and backup:
+        ts = time.strftime("%Y%m%d-%H%M%S")
+        backup_path = path.with_suffix(path.suffix + f".bak.{ts}")
+        shutil.copy2(path, backup_path)
+    empty = {"nodes": [], "edges": []}
+    path.write_text(json.dumps(empty, indent=2), encoding="utf-8")
+    return empty
 
 _EDGE = Tuple[str, str, str]
 

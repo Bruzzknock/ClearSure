@@ -1,8 +1,6 @@
 import json
 from pathlib import Path
-
-def clean_relation(s):
-    return s.upper().replace(" ", "_").replace("-", "_")
+from kg_utils import clean_relation, escape
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 
@@ -14,9 +12,6 @@ output = file_path / "import_kg.cypher"
 with open(input, "r", encoding="utf-8") as f:
     kg = json.load(f)
 
-# Helper to clean labels
-def escape(s):
-    return s.replace('"', '\\"')
 
 cypher_nodes = []
 cypher_edges = []
