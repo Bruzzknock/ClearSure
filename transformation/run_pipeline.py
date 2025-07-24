@@ -3,8 +3,7 @@ import json, itertools
 from neo4j import GraphDatabase
 from contextlib import ExitStack
 from pathlib import Path
-from convert import clean_relation, escape               # reuse your helpers
-import pathlib
+from kg_utils import clean_relation, escape
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 KG_PATH   = BASE_DIR / "structured" / "final_kg.json"
