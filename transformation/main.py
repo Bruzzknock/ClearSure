@@ -1,9 +1,8 @@
-import os
 import json
 import argparse
 from pathlib import Path
 
-from langchain_ollama.llms import OllamaLLM
+from llm import build_llm
 
 from pipeline import (
     prepare_input_file,
@@ -33,13 +32,6 @@ RESET_DB = True
 TOPIC_TREE_PATH = STRUCTURED_DIR / "topic_tree.json"
 
 
-def ensure_ollama_host() -> str:
-    host = os.environ.get("OLLAMA_HOST") or os.environ.get("OLLAMA_HOST_PC")
-    if not host:
-        raise EnvironmentError("Set OLLAMA_HOST or OLLAMA_HOST_PC")
-    return host
-
-
 def _find_topic(node: doc_tree.Node, start: int, end: int) -> doc_tree.Node | None:
     """Return the deepest topic ``node`` covering the character span."""
     if start < node.char_start or end > node.char_end:
@@ -53,27 +45,14 @@ def _find_topic(node: doc_tree.Node, start: int, end: int) -> doc_tree.Node | No
 
 def phase1_sentence_kg(text_path: Path) -> None:
     """Run phase 1: sentence-level KG extraction."""
-    host = ensure_ollama_host()
-    model = OllamaLLM(
-        model="deepseek-r1:14b",
-        base_url=host,
-        options={"num_ctx": 8192},
-        temperature=0.0,
-    )
+    model = build_llm()
     input_basename = prepare_input_file(text_path)
     process_document(model, input_file=input_basename)
 
 
 def phase2_summary(text_path: Path) -> None:
     """Build topic tree and merge sentence KGs into ``final_kg.json``."""
-
-    host = ensure_ollama_host()
-    model = OllamaLLM(
-        model="deepseek-r1:14b",
-        base_url=host,
-        options={"num_ctx": 8192},
-        temperature=0.0,
-    )
+    model = build_llm()
 
     text = extract_text(text_path)
 

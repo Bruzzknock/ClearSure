@@ -15,6 +15,7 @@ pydantic>=2.7,<3                  # schema validation
 langchain-core==0.2.*             # prompt objects & flow control
 langchain-community==0.2.*        # ready-made output parsers
 langchain-ollama==0.1.*           # thin wrapper around Ollama’s REST
+langchain-google-genai==0.0.*     # Google Gemini support
 
 # ---- transient compatibility pins ----
 packaging<24      # many libs still cap here
