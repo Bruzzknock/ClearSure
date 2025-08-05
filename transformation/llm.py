@@ -32,5 +32,5 @@ def build_llm() -> Any:
     api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
     if not api_key:
         raise EnvironmentError("Set GEMINI_API_KEY or GOOGLE_API_KEY")
-    model_name = os.environ.get("GEMINI_MODEL", "gemini-1.5-pro-latest")
+    model_name = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
     return GoogleGenerativeAI(model=model_name, google_api_key=api_key, temperature=0.0)
