@@ -1,13 +1,12 @@
 # ------------------------------------------------------------------
 # 0.  utilities ----------------------------------------------------
 # ------------------------------------------------------------------
-import json, os
+import json
 from pathlib import Path
 from typing import Dict, Any, Iterable
 import spacy, warnings
 import argparse
 import pdfplumber
-from langchain_ollama.llms import OllamaLLM
 from kg_utils import _extract_json_block, update_kg, clean_kg
 from LLMs import (
     simplify_text,
@@ -17,6 +16,7 @@ from LLMs import (
     label_text,
     clean_label,
 )
+from llm import build_llm
 
 try:
     # load environment variables from .env file (requires `python-dotenv`)
@@ -224,11 +224,20 @@ def process_document(model, input_file: str = "output.json") -> list[dict]:
         # ------------------------------------------------------
         # (C) clean-up first pass
         # ------------------------------------------------------
-        kg_patch_dict = json.loads(_extract_json_block(kg_patch_txt))
+        try:
+            kg_patch_dict = json.loads(_extract_json_block(kg_patch_txt))
+        except ValueError as e:
+            print(f"⚠️ Skipping sentence; could not parse ontology JSON: {e}")
+            continue
+
         cleaned_patch_txt = remove_think_block(clean_up_1st_phase(kg_patch_dict, model))
         print("✅✅✅✅✅✅ Cleaned Edges:", cleaned_patch_txt)
 
-        edges_patch = json.loads(_extract_json_block(cleaned_patch_txt)).get("edges_patch", [])
+        try:
+            edges_patch = json.loads(_extract_json_block(cleaned_patch_txt)).get("edges_patch", [])
+        except ValueError as e:
+            print(f"⚠️ Could not parse cleaned edges JSON: {e}")
+            edges_patch = []
 
         sentence_kg = {
             "sentence": sentence,
@@ -267,16 +276,7 @@ if __name__ == "__main__":
     parser.add_argument("path", type=Path, help="Path to a PDF or text file to process")
     args = parser.parse_args()
 
-    os.environ["OLLAMA_HOST"] = os.environ.get(
-        "OLLAMA_HOST_PC", os.environ.get("OLLAMA_HOST", "")
-    )
-
-    model = OllamaLLM(
-        model="deepseek-r1:14b",
-        base_url=os.environ["OLLAMA_HOST"],
-        options={"num_ctx": 8192},
-        temperature=0.0,
-    )
+    model = build_llm()
 
     input_file = prepare_input_file(args.path)
 

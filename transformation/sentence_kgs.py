@@ -1,9 +1,8 @@
 import json
-import os
 from pathlib import Path
 import argparse
 
-from langchain_ollama.llms import OllamaLLM
+from llm import build_llm
 
 from LLMs import simplify_text, remove_think_block, create_knowledge_ontology
 from kg_utils import _extract_json_block
@@ -12,18 +11,6 @@ from pipeline import split_into_sentences, extract_text
 BASE_DIR = Path(__file__).resolve().parents[1]
 STRUCTURED_DIR = BASE_DIR / "structured"
 STRUCTURED_DIR.mkdir(parents=True, exist_ok=True)
-
-
-def build_model() -> OllamaLLM:
-    host = os.environ.get("OLLAMA_HOST") or os.environ.get("OLLAMA_HOST_PC")
-    if not host:
-        raise EnvironmentError("Set OLLAMA_HOST or OLLAMA_HOST_PC")
-    return OllamaLLM(
-        model="deepseek-r1:14b",
-        base_url=host,
-        options={"num_ctx": 8192},
-        temperature=0.0,
-    )
 
 
 def sentence_kgs(text: str, model) -> list[dict]:
@@ -39,7 +26,7 @@ def sentence_kgs(text: str, model) -> list[dict]:
 
 def main(path: Path, out: Path) -> None:
     text = extract_text(path)
-    model = build_model()
+    model = build_llm()
     kgs = sentence_kgs(text, model)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(kgs, indent=2, ensure_ascii=False), encoding="utf-8")
