@@ -93,6 +93,21 @@ def query_similar_topics(
     driver = GraphDatabase.driver(uri, auth=auth)
     results: List[Tuple[Topic, List[dict]]] = []
     with driver.session() as session:
+        # Ensure the vector index exists.  Determine the dimensionality from
+        # the first available topic embedding and create the index on demand.
+        dim = next((len(t.embedding) for t in topics if t.embedding), None)
+        if dim:
+            exists = session.run(
+                "SHOW INDEXES YIELD name WHERE name = $name RETURN name",
+                name=index_name,
+            ).single()
+            if not exists:
+                session.run(
+                    "CALL db.index.vector.createNodeIndex("
+                    "$name, 'Topic', 'embedding', $dim, 'cosine')",
+                    name=index_name,
+                    dim=dim,
+                )
         for topic in topics:
             if topic.embedding is None:
                 continue
