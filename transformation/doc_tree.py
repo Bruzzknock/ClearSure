@@ -234,9 +234,15 @@ def clear_neo4j(uri: str, user: str, password: str, drop_meta: bool = False) -> 
         sess.run("MATCH (n) DETACH DELETE n")
         if drop_meta:
             for rec in sess.run("SHOW CONSTRAINTS"):
-                sess.run(f"DROP CONSTRAINT {rec['name']} IF EXISTS")
+                name = rec["name"]
+                if name:
+                    # Backticks allow dropping constraints with hyphenated names
+                    sess.run(f"DROP CONSTRAINT `{name}` IF EXISTS")
             for rec in sess.run("SHOW INDEXES"):
-                sess.run(f"DROP INDEX {rec['name']} IF EXISTS")
+                name = rec["name"]
+                if name:
+                    # Backticks escape special characters in index names
+                    sess.run(f"DROP INDEX `{name}` IF EXISTS")
     driver.close()
     log("✅ Database cleared")
 
