@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+from sentence_transformers import SentenceTransformer
+
 def clean_relation(s):
     return s.upper().replace(" ", "_").replace("-", "_")
 
@@ -9,6 +11,9 @@ BASE_DIR = Path(__file__).resolve().parents[1]
 file_path = BASE_DIR / "structured"
 input = file_path / "final_kg.json"
 output = file_path / "import_kg.cypher"
+
+# Initialize the sentence embedding model once
+model = SentenceTransformer("all-MiniLM-L6-v2")
 
 # Load your merged knowledge graph
 with open(input, "r", encoding="utf-8") as f:
@@ -44,6 +49,11 @@ for node in kg["nodes"]:
         props.update(attrs)
 
     node_label = node.get("type", "Entity")
+
+    # Add embedding for Topic nodes
+    if node_label == "Topic":
+        embedding = model.encode(node.get("label", "")).tolist()
+        props["embedding"] = embedding
 
     prop_str = ""
     if props:
