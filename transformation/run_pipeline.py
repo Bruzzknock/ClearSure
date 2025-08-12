@@ -52,9 +52,16 @@ def clear_database(drop_meta: bool = False) -> None:
         sess.run("MATCH (n) DETACH DELETE n")
         if drop_meta:
             for rec in sess.run("SHOW CONSTRAINTS"):
-                sess.run(f"DROP CONSTRAINT {rec['name']} IF EXISTS")
+                name = rec["name"]
+                if name:
+                    # Use backticks so constraint names with special characters
+                    # (e.g. hyphens) are parsed correctly by Neo4j
+                    sess.run(f"DROP CONSTRAINT `{name}` IF EXISTS")
             for rec in sess.run("SHOW INDEXES"):
-                sess.run(f"DROP INDEX {rec['name']} IF EXISTS")
+                name = rec["name"]
+                if name:
+                    # Same treatment for index names; backticks escape hyphens
+                    sess.run(f"DROP INDEX `{name}` IF EXISTS")
 
 def _chunk(iterable, size):
     it = iter(iterable)
