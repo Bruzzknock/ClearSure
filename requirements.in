@@ -17,7 +17,7 @@ prefect~=3.4                 # 2025-05-29 :contentReference[oaicite:3]{index=3}
  langchain-community>=0.3,<0.4
  langchain-ollama>=0.2,<0.3          # 0.2.x requires core 0.3
  langchain-google-genai>=2,<3        # 2.x requires core 0.3
- langchain-openai>=0.2,<0.3
+ openai>=1,<2
 
 # ---- transient compatibility pins ----
 packaging<24      # many libs still cap here
