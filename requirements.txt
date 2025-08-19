@@ -278,13 +278,10 @@ langchain-core==0.3.72
     #   langchain-community
     #   langchain-google-genai
     #   langchain-ollama
-    #   langchain-openai
     #   langchain-text-splitters
 langchain-google-genai==2.1.9
     # via -r requirements.in
 langchain-ollama==0.2.3
-    # via -r requirements.in
-langchain-openai==0.2.14
     # via -r requirements.in
 langchain-text-splitters==0.3.9
     # via langchain
@@ -389,7 +386,7 @@ onnxruntime==1.22.1
     #   unstructured
     #   unstructured-inference
 openai==1.99.9
-    # via langchain-openai
+    # via -r requirements.in
 opencv-python==4.11.0.86
     # via unstructured-inference
 openpyxl==3.1.5
@@ -722,7 +719,7 @@ thinc==8.3.4
 threadpoolctl==3.6.0
     # via scikit-learn
 tiktoken==0.11.0
-    # via langchain-openai
+    # via openai
 timm==1.0.19
     # via
     #   effdet
