@@ -1,10 +1,20 @@
 import json
+import re
 from pathlib import Path
 
 from sentence_transformers import SentenceTransformer
 
-def clean_relation(s):
-    return s.upper().replace(" ", "_").replace("-", "_")
+
+def clean_relation(s: str) -> str:
+    """Normalize relation and label names for Cypher.
+
+    Neo4j relationship types and labels may only contain alphanumeric
+    characters and underscores. Any other character (including punctuation
+    like curly apostrophes) is replaced with an underscore and the result is
+    uppercased.
+    """
+
+    return re.sub(r"[^0-9A-Z_]", "_", s.upper())
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 
