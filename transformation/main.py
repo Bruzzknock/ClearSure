@@ -15,7 +15,8 @@ from pipeline import (
     SENTENCE_KGS_PATH,
     INPUT_PATH,
 )
-from run_pipeline import load_and_push, clear_database
+from run_pipeline import push_cypher_file, clear_database
+from convert import final_to_cypher
 import doc_tree
 from kg_utils import update_kg, clean_kg, consolidate_rules_to_topics
 
@@ -95,9 +96,13 @@ def phase2_summary(text_path: Path) -> None:
 
 
 def push_to_neo4j() -> None:
+    # Convert final_kg.json to import_kg.cypher with embeddings
+    final_to_cypher()
+
     if RESET_DB:
         clear_database(drop_meta=True)
-    load_and_push(save_to=OUT_PATH)
+
+    push_cypher_file(OUT_PATH)
 
 
 def parse_args() -> argparse.Namespace:

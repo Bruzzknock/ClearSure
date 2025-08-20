@@ -47,6 +47,22 @@ def load_and_push(save_to: Path | None = None) -> None:
 
         tx.commit()
 
+
+def push_cypher_file(path: Path) -> None:
+    """Push pre-generated Cypher statements to Neo4j."""
+
+    stmts = path.read_text(encoding="utf-8").splitlines()
+    with ExitStack() as stack:
+        sess = stack.enter_context(driver.session())
+        tx = stack.enter_context(sess.begin_transaction())
+
+        for i, stmt in enumerate(stmts, 1):
+            tx.run(stmt)
+            if i % 1000 == 0:
+                print(f"{i} statements sent…")
+
+        tx.commit()
+
 def clear_database(drop_meta: bool = False) -> None:
     with driver.session() as sess:
         sess.run("MATCH (n) DETACH DELETE n")
