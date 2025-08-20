@@ -46,10 +46,7 @@ def final_to_cypher(input: Path = DEFAULT_INPUT, output: Path = DEFAULT_OUTPUT) 
 
     for node in kg["nodes"]:
         nid = node["id"]
-        # Not all nodes are guaranteed to carry a `label` field.  If it's
-        # missing we fall back to an empty string so the conversion still
-        # succeeds rather than failing with a KeyError.
-        label = escape(node.get("label", ""))
+        label = node["label"]
 
         # Avoid duplicating the same node
         if nid in node_ids:
