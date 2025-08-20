@@ -98,6 +98,28 @@ def _dedupe_nodes(nodes: list[dict]) -> set[str]:
     return {n["id"] for n in nodes}
 
 
+def _load_kg(kg_path: Path) -> Dict[str, Any]:
+    """Return the existing KG or an empty skeleton.
+
+    A freshly checked-out repository may contain an empty ``final_kg.json``
+    file or none at all.  ``json.loads`` would raise ``JSONDecodeError`` when
+    confronted with an empty string.  To make the helper functions resilient
+    we attempt to read and parse the file but gracefully fall back to an empty
+    knowledge graph structure when the file is missing or contains invalid
+    JSON.
+    """
+
+    try:
+        text = kg_path.read_text(encoding="utf-8")
+        if text.strip():
+            return json.loads(text)
+    except FileNotFoundError:
+        pass
+    except json.JSONDecodeError:
+        pass
+    return {"nodes": [], "edges": []}
+
+
 def clean_kg(
     patch: Union[str, Dict[str, Any]],
     kg_path: str | os.PathLike = "final_kg.json",
@@ -128,7 +150,7 @@ def clean_kg(
     Returns the updated KG dict.
     """
     kg_path = Path(kg_path)
-    kg = json.loads(kg_path.read_text(encoding="utf-8"))
+    kg = _load_kg(kg_path)
     node_ids = {n["id"] for n in kg["nodes"]}
 
     new_edges = deepcopy(_load_patch(patch))  # defensive copy
@@ -191,7 +213,7 @@ def update_kg(
     If `return_id_map=True`, returns (kg, id_map); else just kg.
     """
     kg_path = Path(kg_path)
-    kg = json.loads(kg_path.read_text(encoding="utf-8"))
+    kg = _load_kg(kg_path)
 
     patch_nodes = _load_patch(new_kg, "nodes")
     patch_edges = _load_patch(new_kg, "edges")
