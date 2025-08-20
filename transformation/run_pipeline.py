@@ -49,15 +49,27 @@ def load_and_push(save_to: Path | None = None) -> None:
 
 
 def push_cypher_file(path: Path) -> None:
-    """Push pre-generated Cypher statements to Neo4j."""
-    # ``splitlines`` preserves blank lines which would result in empty
-    # Cypher statements and trigger ``CypherSyntaxError`` when executed.
-    # Filter out any lines that are empty or contain only comments.
-    stmts = [
-        stmt.strip()
-        for stmt in path.read_text(encoding="utf-8").splitlines()
-        if stmt.strip() and not stmt.lstrip().startswith("//")
-    ]
+    """Push pre-generated Cypher statements to Neo4j.
+
+    Previously every *line* in ``path`` was treated as a complete statement.
+    Multi-line queries such as a ``MATCH`` on one line followed by ``CREATE`` on
+    the next were therefore split and Neo4j received a bare ``MATCH`` which
+    results in ``CypherSyntaxError``.  To support multi-line statements we
+    accumulate lines until a terminating semicolon is encountered.
+    """
+
+    stmts: list[str] = []
+    buffer: list[str] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("//"):
+            continue
+        buffer.append(stripped)
+        if stripped.endswith(";"):
+            stmts.append(" ".join(buffer))
+            buffer.clear()
+    if buffer:
+        stmts.append(" ".join(buffer))
 
     with ExitStack() as stack:
         sess = stack.enter_context(driver.session())
