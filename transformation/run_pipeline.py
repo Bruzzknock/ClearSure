@@ -50,8 +50,15 @@ def load_and_push(save_to: Path | None = None) -> None:
 
 def push_cypher_file(path: Path) -> None:
     """Push pre-generated Cypher statements to Neo4j."""
+    # ``splitlines`` preserves blank lines which would result in empty
+    # Cypher statements and trigger ``CypherSyntaxError`` when executed.
+    # Filter out any lines that are empty or contain only comments.
+    stmts = [
+        stmt.strip()
+        for stmt in path.read_text(encoding="utf-8").splitlines()
+        if stmt.strip() and not stmt.lstrip().startswith("//")
+    ]
 
-    stmts = path.read_text(encoding="utf-8").splitlines()
     with ExitStack() as stack:
         sess = stack.enter_context(driver.session())
         tx = stack.enter_context(sess.begin_transaction())
