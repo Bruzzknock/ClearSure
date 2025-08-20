@@ -53,8 +53,16 @@ def ensure_final_kg_exists() -> None:
     """
     Make sure final_kg.json exists and has the minimal structure.
     """
-    if not FINAL_KG_PATH.exists():
-        FINAL_KG_PATH.write_text(json.dumps({"nodes": [], "edges": []}, indent=2))
+    if FINAL_KG_PATH.exists():
+        try:
+            txt = FINAL_KG_PATH.read_text(encoding="utf-8")
+            if not txt.strip():
+                raise ValueError
+            json.loads(txt)
+            return
+        except Exception:
+            pass
+    FINAL_KG_PATH.write_text(json.dumps({"nodes": [], "edges": []}, indent=2))
 
 
 def extract_text(path: Path) -> str:
