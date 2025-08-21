@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Dict, Any, Iterable
 import spacy, warnings
 import argparse
-import pdfplumber
 from kg_utils import _extract_json_block, update_kg, clean_kg
 from LLMs import (
     simplify_text,
@@ -17,6 +16,7 @@ from LLMs import (
     clean_label,
 )
 from llm import build_llm
+from utils.io import extract_text
 
 # Load environment variables once on import
 import env  # noqa: F401
@@ -58,19 +58,6 @@ def ensure_final_kg_exists() -> None:
         except Exception:
             pass
     FINAL_KG_PATH.write_text(json.dumps({"nodes": [], "edges": []}, indent=2))
-
-
-def extract_text(path: Path) -> str:
-    """Return plain text extracted from *path*.
-
-    Currently supports PDF via pdfplumber; other files are read as UTF-8.
-    """
-    if path.suffix.lower() == ".pdf":
-        with pdfplumber.open(path) as pdf:
-            pages = [page.extract_text() or "" for page in pdf.pages]
-        return "\n".join(pages)
-
-    return path.read_text(encoding="utf-8")
 
 
 def prepare_input_file(src: Path, dest: Path = STRUCTURED_DIR / "output.json") -> str:

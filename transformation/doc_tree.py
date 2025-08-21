@@ -19,10 +19,11 @@ os.environ["OLLAMA_HOST"] = os.environ.get(
 )
 
 import nltk
-import pdfplumber
 from neo4j import GraphDatabase
 from llm import build_llm
 from LLMs import label_text, sentence_topic_same, clean_label
+from utils.io import extract_text
+from neo4j_utils import clear_database
 
 VERBOSE = False
 
@@ -47,22 +48,6 @@ def get_context_window(model) -> int:
     else:
         key = getattr(model, "model", "")
     return known.get(key, 8192)
-
-
-def extract_text(path: Path) -> str:
-    """Return plain text from *path*.
-
-    Supports PDF via ``pdfplumber`` or reads the file as UTF-8 text otherwise.
-    """
-    if path.suffix.lower() == ".pdf":
-        with pdfplumber.open(path) as pdf:
-            pages = [page.extract_text() or "" for page in pdf.pages]
-        return "\n".join(pages)
-
-    return path.read_text(encoding="utf-8")
-
-
-
 # ---------------------------------------------------------------------------
 # Node class
 # ---------------------------------------------------------------------------
@@ -221,27 +206,6 @@ def push_to_neo4j(root: Node, uri: str, user: str, password: str) -> None:
     log("✅ Finished pushing to Neo4j")
 
 
-def clear_neo4j(uri: str, user: str, password: str, drop_meta: bool = False) -> None:
-    """Delete all nodes and optionally indexes/constraints from Neo4j."""
-    log(f"🗑️  Clearing Neo4j at {uri}")
-    driver = GraphDatabase.driver(uri, auth=(user, password))
-    with driver.session() as sess:
-        sess.run("MATCH (n) DETACH DELETE n")
-        if drop_meta:
-            for rec in sess.run("SHOW CONSTRAINTS"):
-                name = rec["name"]
-                if name:
-                    # Backticks allow dropping constraints with hyphenated names
-                    sess.run(f"DROP CONSTRAINT `{name}` IF EXISTS")
-            for rec in sess.run("SHOW INDEXES"):
-                name = rec["name"]
-                if name:
-                    # Backticks escape special characters in index names
-                    sess.run(f"DROP INDEX `{name}` IF EXISTS")
-    driver.close()
-    log("✅ Database cleared")
-
-
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -297,7 +261,7 @@ def main() -> None:
     log(f"💾 Writing tree to {args.out}")
     Path(args.out).write_text(json.dumps(tree.to_dict(), indent=2), encoding="utf-8")
     if args.reset_db:
-        clear_neo4j(args.neo4j_uri, args.neo4j_user, args.neo4j_pass, drop_meta=True)
+        clear_database(args.neo4j_uri, args.neo4j_user, args.neo4j_pass, drop_meta=True)
     push_to_neo4j(tree, args.neo4j_uri, args.neo4j_user, args.neo4j_pass)
 
 

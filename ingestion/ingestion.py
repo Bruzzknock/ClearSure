@@ -30,7 +30,7 @@ from typing import List
 from unstructured.partition.auto import partition
 from unstructured.chunking.basic import chunk_elements
 from unstructured.documents.elements import Element
-import pdfplumber
+from utils.io import extract_text
 
 logger = logging.getLogger(__name__)
 
@@ -106,20 +106,6 @@ def write_output(elements: List[Element], out: Path | None, src: Path) -> None:
     records = [el.to_dict() for el in elements]
     out.write_text(json.dumps(records, indent=2, ensure_ascii=False), encoding="utf-8")
     logger.info("Wrote %d elements ➜ %s", len(records), out)
-
-
-def extract_text(path: Path) -> str:
-    """Return plain text extracted from *path*.
-
-    Currently supports PDF via pdfplumber; other files are read as UTF-8.
-    """
-    if path.suffix.lower() == ".pdf":
-        with pdfplumber.open(path) as pdf:
-            pages = [page.extract_text() or "" for page in pdf.pages]
-        return "\n".join(pages)
-
-    return path.read_text(encoding="utf-8")
-
 
 def ingest_directory(input_dir: Path, output_file: Path, verbose: bool = False) -> None:
     """Ingest all PDFs from *input_dir* and write combined text to *output_file*."""
