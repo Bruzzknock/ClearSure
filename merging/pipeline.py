@@ -3,7 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, List, Tuple
+import os
 import re
+import env  # noqa: F401
 
 
 # ---------------------------------------------------------------------------
@@ -85,10 +87,17 @@ def query_similar_topics(
     index_name: str = "topic-embeddings",
     top_k: int = 5,
     uri: str = "bolt://localhost:7687",
-    auth: Tuple[str, str] = ("neo4j", "12345678"),
+    auth: Tuple[str, str] | None = None,
 ) -> List[Tuple[Topic, List[dict]]]:
     """Return a list of ``(topic, matches)`` pairs."""
     from neo4j import GraphDatabase
+
+    if auth is None:
+        user = os.environ.get("NEO4J_USER")
+        password = os.environ.get("NEO4J_PASS")
+        if not user or not password:
+            raise RuntimeError("NEO4J_USER and NEO4J_PASS must be set")
+        auth = (user, password)
 
     driver = GraphDatabase.driver(uri, auth=auth)
     results: List[Tuple[Topic, List[dict]]] = []
