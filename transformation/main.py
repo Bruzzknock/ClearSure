@@ -1,6 +1,11 @@
 import json
 import argparse
 from pathlib import Path
+import sys
+
+# Ensure the project root is on the import path so sibling modules like
+# ``utils`` can be imported when this file is executed as a script.
+sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from llm import build_llm
 
