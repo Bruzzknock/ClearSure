@@ -26,7 +26,7 @@ os.environ["OLLAMA_HOST"] = os.environ.get(
 import nltk
 import pdfplumber
 from neo4j import GraphDatabase
-from langchain_ollama.llms import OllamaLLM
+from llm import build_llm
 from LLMs import label_text, sentence_topic_same, clean_label
 
 VERBOSE = False
@@ -263,7 +263,6 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument(
         "--model",
-        default=os.environ.get("OLLAMA_MODEL", "deepseek-r1:14b"),
         help="Model name for the provider",
     )
     p.add_argument("--neo4j-uri", default="bolt://localhost:7687")
@@ -283,12 +282,15 @@ def main() -> None:
     args = parse_args()
     global VERBOSE
     VERBOSE = args.verbose
-    model = OllamaLLM(
-        model=args.model,
-        base_url=os.environ["OLLAMA_HOST"],
-        options={"num_ctx": 8192},
-        temperature=0.0,
-    )
+    provider = os.getenv("LLM_PROVIDER", "ollama").lower()
+    if args.model:
+        if provider == "google":
+            os.environ["GEMINI_MODEL"] = args.model
+        elif provider == "openai":
+            os.environ["OPENAI_MODEL"] = args.model
+        else:
+            os.environ["OLLAMA_MODEL"] = args.model
+    model = build_llm()
     try:
         nltk.data.find("tokenizers/punkt")
     except LookupError:
