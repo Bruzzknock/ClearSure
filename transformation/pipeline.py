@@ -18,13 +18,8 @@ from LLMs import (
 )
 from llm import build_llm
 
-try:
-    # load environment variables from .env file (requires `python-dotenv`)
-    from dotenv import load_dotenv
-
-    load_dotenv()
-except ImportError:
-    pass
+# Load environment variables once on import
+import env  # noqa: F401
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 STRUCTURED_DIR = BASE_DIR / "structured"

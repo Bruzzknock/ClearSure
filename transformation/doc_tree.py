@@ -11,13 +11,8 @@ from pathlib import Path
 from typing import List
 from uuid import uuid4
 
-try:
-    # load environment variables from .env file (requires `python-dotenv`)
-    from dotenv import load_dotenv
-
-    load_dotenv()
-except ImportError:  # pragma: no cover - optional dependency
-    pass
+# Load environment variables once on import
+import env  # noqa: F401
 
 os.environ["OLLAMA_HOST"] = os.environ.get(
     "OLLAMA_HOST_PC", os.environ.get("OLLAMA_HOST", "")
