@@ -3,8 +3,9 @@ import json, itertools
 from neo4j import GraphDatabase
 from contextlib import ExitStack
 from pathlib import Path
-from convert import clean_relation, escape               # reuse your helpers
+from convert import edge_to_cypher, node_to_cypher
 import pathlib
+import env  # noqa: F401
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 KG_PATH   = BASE_DIR / "structured" / "final_kg.json"
@@ -13,20 +14,15 @@ BOLT_URI  = "bolt://localhost:7687"
 driver    = GraphDatabase.driver(BOLT_URI, auth=("neo4j", "12345678"))
 
 def kg_to_statements(kg):
-    for n in kg["nodes"]:
-        props = {k: v for k, v in n.items() if k not in ("id", "label")}
-        if "attributes" in props:
-            props.update(props.pop("attributes"))
-        prop_str = ", ".join(f'{k}: {json.dumps(v)}' for k, v in props.items())
-        yield f'CREATE (:Entity {{id: "{n["id"]}", label: "{escape(n["label"])}"{", " + prop_str if prop_str else ""}}});'
+    node_ids = set()
+    for node in kg["nodes"]:
+        if node["id"] in node_ids:
+            continue
+        node_ids.add(node["id"])
+        yield node_to_cypher(node)
 
-    for e in kg["edges"]:
-        attr = e.get("attributes") or {}
-        a_str = (" { " + ", ".join(f'{k}: {json.dumps(v)}' for k, v in attr.items()) + " }") if attr else ""
-        yield (
-            f'MATCH (a {{id: "{e["source"]}"}}), (b {{id: "{e["target"]}"}}) '
-            f'CREATE (a)-[:{clean_relation(escape(e["relation"]))}{a_str}]->(b);'
-        )
+    for edge in kg["edges"]:
+        yield edge_to_cypher(edge)
 
 def load_and_push(save_to: Path | None = None) -> None:
     kg     = json.loads(KG_PATH.read_text(encoding="utf-8"))

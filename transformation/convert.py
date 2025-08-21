@@ -32,6 +32,56 @@ DEFAULT_OUTPUT = STRUCTURED_DIR / "import_kg.cypher"
 model = SentenceTransformer("all-MiniLM-L6-v2")
 
 
+def node_to_cypher(node: dict) -> str:
+    """Return a ``CREATE`` statement for *node* with optional embedding."""
+
+    nid = node["id"]
+    label = node["label"]
+    props = {k: v for k, v in node.items() if k not in ["id", "label", "type"]}
+    if "attributes" in props:
+        attrs = props.pop("attributes")
+        props.update(attrs)
+
+    node_label = node.get("type", "Entity")
+
+    if node_label == "Topic":
+        embedding = model.encode(node.get("label", "")).tolist()
+        props["embedding"] = embedding
+
+    prop_str = ""
+    if props:
+        pairs = [
+            f'{k}: "{v}"' if isinstance(v, str) else f'{k}: {v}'
+            for k, v in props.items()
+        ]
+        prop_str = ", " + ", ".join(pairs)
+
+    return (
+        f'CREATE (:{clean_relation(node_label)} '
+        f'{{id: "{nid}", label: "{label}"{prop_str}}});'
+    )
+
+
+def edge_to_cypher(edge: dict) -> str:
+    """Return Cypher statements to connect two nodes."""
+
+    src = edge["source"]
+    tgt = edge["target"]
+    rel = clean_relation(escape(edge["relation"]))
+    attr_str = ""
+    if edge.get("attributes"):
+        pairs = [
+            f'{k}: "{v}"' if isinstance(v, str) else f'{k}: {v}'
+            for k, v in edge["attributes"].items()
+        ]
+        attr_str = " { " + ", ".join(pairs) + " }"
+
+    return (
+        f"MATCH (a {{id: \"{src}\"}}), (b {{id: \"{tgt}\"}})\n"
+        f"CREATE (a)-[:{rel}{attr_str}]->(b);"
+    )
+
+
 def final_to_cypher(input: Path = DEFAULT_INPUT, output: Path = DEFAULT_OUTPUT) -> None:
     """Convert ``final_kg.json`` to ``import_kg.cypher`` with embeddings."""
 
@@ -41,63 +91,16 @@ def final_to_cypher(input: Path = DEFAULT_INPUT, output: Path = DEFAULT_OUTPUT) 
     cypher_nodes: list[str] = []
     cypher_edges: list[str] = []
 
-    # Use a set to track all created nodes (avoid duplicate CREATEs)
     node_ids: set[str] = set()
-
     for node in kg["nodes"]:
-        nid = node["id"]
-        label = node["label"]
-
-        # Avoid duplicating the same node
-        if nid in node_ids:
+        if node["id"] in node_ids:
             continue
-        node_ids.add(nid)
-
-        props = {k: v for k, v in node.items() if k not in ["id", "label", "type"]}
-        # Also handle nested attributes
-        if "attributes" in props:
-            attrs = props.pop("attributes")
-            props.update(attrs)
-
-        node_label = node.get("type", "Entity")
-
-        # Add embedding for Topic nodes
-        if node_label == "Topic":
-            embedding = model.encode(node.get("label", "")).tolist()
-            props["embedding"] = embedding
-
-        prop_str = ""
-        if props:
-            prop_pairs = [
-                f'{k}: "{v}"' if isinstance(v, str) else f'{k}: {v}'
-                for k, v in props.items()
-            ]
-            prop_str = ", " + ", ".join(prop_pairs)
-
-        cypher_nodes.append(
-            f'CREATE (:{clean_relation(node_label)} {{id: "{nid}", label: "{label}"{prop_str}}});'
-        )
+        node_ids.add(node["id"])
+        cypher_nodes.append(node_to_cypher(node))
 
     for edge in kg["edges"]:
-        src = edge["source"]
-        tgt = edge["target"]
-        rel = clean_relation(escape(edge["relation"]))
-        attr_str = ""
-        if "attributes" in edge and edge["attributes"]:
-            attr_pairs = [
-                f'{k}: "{v}"' if isinstance(v, str) else f'{k}: {v}'
-                for k, v in edge["attributes"].items()
-            ]
-            attr_str = " { " + ", ".join(attr_pairs) + " }"
+        cypher_edges.append(edge_to_cypher(edge))
 
-        cypher_edges.append(
-            f"""
-MATCH (a {{id: \"{src}\"}}), (b {{id: \"{tgt}\"}})
-CREATE (a)-[:{rel}{attr_str}]->(b);
-"""
-        )
-
-    # Write Cypher script to file
     with open(output, "w", encoding="utf-8") as f:
         f.write("\n".join(cypher_nodes + cypher_edges))
 
