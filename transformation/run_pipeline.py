@@ -6,12 +6,15 @@ from pathlib import Path
 from convert import edge_to_cypher, node_to_cypher
 import pathlib
 import env  # noqa: F401
+from neo4j_utils import clear_database
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 KG_PATH   = BASE_DIR / "structured" / "final_kg.json"
 OUT_PATH  = BASE_DIR / "structured" / "import_kg.cypher"
-BOLT_URI  = "bolt://localhost:7687"
-driver    = GraphDatabase.driver(BOLT_URI, auth=("neo4j", "12345678"))
+BOLT_URI   = "bolt://localhost:7687"
+NEO4J_USER = "neo4j"
+NEO4J_PASS = "12345678"
+driver     = GraphDatabase.driver(BOLT_URI, auth=(NEO4J_USER, NEO4J_PASS))
 
 def kg_to_statements(kg):
     node_ids = set()
@@ -78,28 +81,12 @@ def push_cypher_file(path: Path) -> None:
 
         tx.commit()
 
-def clear_database(drop_meta: bool = False) -> None:
-    with driver.session() as sess:
-        sess.run("MATCH (n) DETACH DELETE n")
-        if drop_meta:
-            for rec in sess.run("SHOW CONSTRAINTS"):
-                name = rec["name"]
-                if name:
-                    # Use backticks so constraint names with special characters
-                    # (e.g. hyphens) are parsed correctly by Neo4j
-                    sess.run(f"DROP CONSTRAINT `{name}` IF EXISTS")
-            for rec in sess.run("SHOW INDEXES"):
-                name = rec["name"]
-                if name:
-                    # Same treatment for index names; backticks escape hyphens
-                    sess.run(f"DROP INDEX `{name}` IF EXISTS")
-
 def _chunk(iterable, size):
     it = iter(iterable)
     for first in it:
         yield list(itertools.chain([first], itertools.islice(it, size-1)))
 
 if __name__ == "__main__":
-    clear_database(drop_meta=True)           # wipe
+    clear_database(BOLT_URI, NEO4J_USER, NEO4J_PASS, drop_meta=True)  # wipe
     load_and_push(save_to=OUT_PATH)          # reload + save copy
     print("✅ Graph ingested and written to", OUT_PATH)
