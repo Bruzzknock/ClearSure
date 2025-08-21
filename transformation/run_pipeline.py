@@ -1,20 +1,27 @@
 # run_pipeline.py
 import json, itertools
+import os
 from neo4j import GraphDatabase
 from contextlib import ExitStack
 from pathlib import Path
 from convert import edge_to_cypher, node_to_cypher
 import pathlib
 import env  # noqa: F401
-from neo4j_utils import clear_database
+from neo4j_utils import clear_database as _clear_database
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 KG_PATH   = BASE_DIR / "structured" / "final_kg.json"
 OUT_PATH  = BASE_DIR / "structured" / "import_kg.cypher"
-BOLT_URI   = "bolt://localhost:7687"
-NEO4J_USER = "neo4j"
-NEO4J_PASS = "12345678"
-driver     = GraphDatabase.driver(BOLT_URI, auth=(NEO4J_USER, NEO4J_PASS))
+BOLT_URI = "bolt://localhost:7687"
+NEO4J_USER = os.environ.get("NEO4J_USER")
+NEO4J_PASS = os.environ.get("NEO4J_PASS")
+if not NEO4J_USER or not NEO4J_PASS:
+    raise RuntimeError("NEO4J_USER and NEO4J_PASS must be set")
+driver = GraphDatabase.driver(BOLT_URI, auth=(NEO4J_USER, NEO4J_PASS))
+
+
+def clear_database(*, drop_meta: bool = False) -> None:
+    _clear_database(BOLT_URI, NEO4J_USER, NEO4J_PASS, drop_meta=drop_meta)
 
 def kg_to_statements(kg):
     node_ids = set()
@@ -87,6 +94,6 @@ def _chunk(iterable, size):
         yield list(itertools.chain([first], itertools.islice(it, size-1)))
 
 if __name__ == "__main__":
-    clear_database(BOLT_URI, NEO4J_USER, NEO4J_PASS, drop_meta=True)  # wipe
+    clear_database(drop_meta=True)  # wipe
     load_and_push(save_to=OUT_PATH)          # reload + save copy
     print("✅ Graph ingested and written to", OUT_PATH)

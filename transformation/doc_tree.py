@@ -225,8 +225,8 @@ def parse_args() -> argparse.Namespace:
         help="Model name for the provider",
     )
     p.add_argument("--neo4j-uri", default="bolt://localhost:7687")
-    p.add_argument("--neo4j-user", default="neo4j")
-    p.add_argument("--neo4j-pass", default="neo4j")
+    p.add_argument("--neo4j-user", default=os.environ.get("NEO4J_USER"))
+    p.add_argument("--neo4j-pass", default=os.environ.get("NEO4J_PASS"))
     p.add_argument("--out", default="topic_tree.json")
     p.add_argument(
         "--reset-db",
